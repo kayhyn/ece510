@@ -1,0 +1,73 @@
+========================================================================
+YOLO-nano INT8 3x3 Convolution — cProfile Results
+Layer: 52x52x64 -> 3x3 conv -> 52x52x128
+Runs: 15
+========================================================================
+
+         82442 function calls in 2.379 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    2.379    2.379 /home/claude/codefest/cf02/profiling/profile_conv.py:91(run_all)
+       15    0.000    0.000    2.379    0.159 /home/claude/codefest/cf02/profiling/profile_conv.py:84(run_single_inference)
+       15    2.275    0.152    2.364    0.158 /home/claude/codefest/cf02/profiling/profile_conv.py:63(conv3x3_int8_vectorized)
+    40605    0.037    0.000    0.037    0.000 {method 'astype' of 'numpy.ndarray' objects}
+    40560    0.034    0.000    0.034    0.000 {method 'flatten' of 'numpy.ndarray' objects}
+       30    0.013    0.000    0.013    0.000 {built-in method numpy.zeros}
+       15    0.010    0.001    0.011    0.001 /home/claude/codefest/cf02/profiling/profile_conv.py:29(generate_inputs)
+       15    0.000    0.000    0.004    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:2207(clip)
+       30    0.000    0.000    0.004    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:48(_wrapfunc)
+       15    0.000    0.000    0.004    0.000 {method 'clip' of 'numpy.ndarray' objects}
+       15    0.004    0.000    0.004    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/_methods.py:96(_clip)
+       15    0.000    0.000    0.003    0.000 /home/claude/codefest/cf02/profiling/profile_conv.py:36(pad_input)
+       15    0.000    0.000    0.003    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:546(pad)
+       30    0.000    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:471(_as_pairs)
+       30    0.000    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:3287(prod)
+       15    0.001    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:87(_pad_simple)
+       30    0.000    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+       15    0.000    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_stride_tricks_impl.py:400(broadcast_to)
+       15    0.001    0.000    0.001    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_stride_tricks_impl.py:373(_broadcast_to)
+       45    0.001    0.000    0.001    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       45    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:130(_set_pad_area)
+       15    0.000    0.000    0.000    0.000 {method 'min' of 'numpy.ndarray' objects}
+       30    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/getlimits.py:412(__init__)
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/_methods.py:43(_amin)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:3582(round)
+       30    0.000    0.000    0.000    0.000 {method 'reshape' of 'numpy.ndarray' objects}
+       45    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+       45    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:59(_view_roi)
+       90    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:34(_slice_at_axis)
+       30    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+       15    0.000    0.000    0.000    0.000 {method 'round' of 'numpy.ndarray' objects}
+       60    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:121(<genexpr>)
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/getlimits.py:423(min)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_function_base_impl.py:363(iterable)
+       15    0.000    0.000    0.000    0.000 {method 'tolist' of 'numpy.ndarray' objects}
+       15    0.000    0.000    0.000    0.000 {built-in method numpy.empty}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       60    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:110(<genexpr>)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:2202(_clip_dispatcher)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/getlimits.py:436(max)
+       15    0.000    0.000    0.000    0.000 {method 'ravel' of 'numpy.ndarray' objects}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       30    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+       45    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_stride_tricks_impl.py:378(<genexpr>)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_stride_tricks_impl.py:24(_maybe_view_as_subclass)
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+       15    0.000    0.000    0.000    0.000 {method '__exit__' of 'numpy.nditer' objects}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+       30    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:3282(_prod_dispatcher)
+       15    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/_core/fromnumeric.py:3578(_round_dispatcher)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_arraypad_impl.py:538(_pad_dispatcher)
+       15    0.000    0.000    0.000    0.000 /usr/local/lib/python3.12/dist-packages/numpy/lib/_stride_tricks_impl.py:396(_broadcast_to_dispatcher)
+
+
+
+========================================================================
+WALL-CLOCK TIMING (per inference, 15 runs)
+Mean: 158.4 ms | Std: 7.4 ms
+Individual runs (ms): [164.1, 164.5, 155.6, 164.3, 171.8, 161.3, 163.0, 151.0, 149.0, 150.5, 160.7, 163.8, 144.6, 160.9, 150.6]
