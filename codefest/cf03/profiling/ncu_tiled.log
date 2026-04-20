@@ -1,0 +1,8 @@
+==PROF== Connected to process 3782 (/home/kaylee/ece510/codefest/cf03/cuda/gemm_tiled)
+==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access NVIDIA GPU Performance Counters on the target device 0. For instructions on enabling permissions and to get more information see https://developer.nvidia.com/ERR_NVGPUCTRPERM
+Kernel: gemm_tiled (tile=8)
+Matrix size: 1024 x 1024
+Avg time: 2.008 ms
+Achieved: 1069.54 GFLOP/s
+==PROF== Disconnected from process 3782
+==WARNING== No kernels were profiled.
