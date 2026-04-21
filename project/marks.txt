@@ -1,0 +1,22 @@
+"NOT YET - details below.
+
+Did not pass:
+  FAIL  M1-2: platform documented (CPU/GPU, OS, Python, batch size)  (project/m1/sw_baseline.md missing)
+  FAIL  M1-2: execution time measured (wall-clock, median >= 10 runs)  (project/m1/sw_baseline.md missing)
+  FAIL  M1-2: throughput reported (samples/sec, tokens/sec, or FLOPs/sec)  (project/m1/sw_baseline.md missing)
+  FAIL  M1-2: memory usage reported (peak RSS or GPU memory)  (project/m1/sw_baseline.md missing)
+  FAIL  M1-4: interface chosen from allowed list (SPI/I2C/AXI4/PCIe/UCIe)  (project/m1/interface_selection.md missing)
+  FAIL  M1-4: bandwidth requirement calculated (GB/s shown)  (project/m1/interface_selection.md missing)
+  FAIL  M1-4: interface rated bandwidth compared to required bandwidth  (project/m1/interface_selection.md missing)
+  FAIL  M1-4: host platform stated explicitly  (project/m1/interface_selection.md missing)
+  FAIL  M1-5: system_diagram.png/.pdf present  (file not found at project/m1/system_diagram.*)
+
+Passed:
+  PASS  M1-1: Heilmeier Q1 present (names algorithm/kernel)
+  PASS  M1-1: Heilmeier Q2 present and grounded in profiling data
+  PASS  M1-1: Heilmeier Q3 present and references roofline/arithmetic intensity
+  PASS  M1-3: project_profile.txt/.csv present (from CF02)
+  PASS  M1-3: roofline_project.png/.pdf present (from CF02)
+  PASS  M1-5: algorithm_diagram.png/.pdf present (carry-over from CF01)"
+
+
