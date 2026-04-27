@@ -1,0 +1,9 @@
+reset: out=0 expected=0
+3*4 cycle 1: out=12 expected=12
+3*4 cycle 2: out=24 expected=24
+3*4 cycle 3: out=36 expected=36
+reset between sequences: out=0 expected=0
+-5*2 cycle 1: out=-10 expected=-10
+-5*2 cycle 2: out=-20 expected=-20
+PASS
+mac_tb.v:67: $finish called at 66000 (1ps)
