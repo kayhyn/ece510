@@ -10,7 +10,10 @@ YOLO-nano 3x3 INT8 convolution accelerator project:
 - `tb/tb_compute_core.sv`: self-checking compute-core testbench.
 - `tb/tb_interface.sv`: self-checking interface testbench.
 - `sim/compute_core_run.log` and `sim/interface_run.log`: committed PASS transcripts.
-- `sim/waveform.png`: representative annotated waveform image.
+- `sim/waveform.png`: representative annotated waveform image generated from simulator VCD traces.
+- `precision.md`: optional INT8 data-format rationale and reproducible error analysis.
+- `tools/generate_waveform.py`: regenerates `sim/waveform.png` from VCD files.
+- `tools/precision_analysis.py`: regenerates `sim/precision_analysis.json`.
 
 The file `interface.sv` uses module name `axis_interface` because `interface`
 is a SystemVerilog keyword.
@@ -20,7 +23,9 @@ is a SystemVerilog keyword.
 - Icarus Verilog 13.0 (`iverilog`)
 - Icarus Verilog runtime 13.0 (`vvp`)
 - Yosys 0.64
-- Python 3.10.4 with matplotlib for `sim/waveform.png`
+- Python 3.10.4
+- NumPy 1.26.4
+- matplotlib 3.7.1
 
 ## Run the Compute Core Testbench
 
@@ -64,6 +69,30 @@ Write transaction stored config=00abcd1
 Read response returned data=a00abcd1
 PASS: interface
 ```
+
+## Regenerate the Waveform Image
+
+Run both testbenches first so `project/m2/sim/compute_core.vcd` and
+`project/m2/sim/interface.vcd` exist, then run:
+
+```sh
+python3 project/m2/tools/generate_waveform.py
+```
+
+The script parses the actual VCD traces and writes
+`project/m2/sim/waveform.png`. The VCD files are intermediate simulator output;
+the required committed artifact is the PNG.
+
+## Run the Precision Analysis
+
+From the repository root:
+
+```sh
+python3 project/m2/tools/precision_analysis.py
+```
+
+The script writes `project/m2/sim/precision_analysis.json`. The numbers in
+`project/m2/precision.md` are copied from that JSON output.
 
 ## Optional Synthesis Checks
 

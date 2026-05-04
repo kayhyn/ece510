@@ -1,0 +1,46 @@
+{
+  "samples": 1000,
+  "taps_per_sample": 9,
+  "seed": 510,
+  "activation_scale": 0.007874015748031496,
+  "weight_scale": 0.007874015748031496,
+  "bias_scale": 6.200012400024799e-05,
+  "mean_absolute_error": 0.004511093255132437,
+  "max_absolute_error": 0.017759695649147034,
+  "rms_error": 0.005570434033870697,
+  "p95_absolute_error": 0.010876733064651487,
+  "mean_abs_fp32_reference": 0.8312984108924866,
+  "relative_mae_vs_mean_abs_reference": 0.005426562856882811,
+  "first_five": [
+    {
+      "fp32_reference": 0.4294591546058655,
+      "int32_accumulator": 6983,
+      "int8_dequantized": 0.4329468607902527,
+      "absolute_error": 0.003487706184387207
+    },
+    {
+      "fp32_reference": 0.6185052990913391,
+      "int32_accumulator": 9955,
+      "int8_dequantized": 0.6172112226486206,
+      "absolute_error": 0.0012940764427185059
+    },
+    {
+      "fp32_reference": 1.3399969339370728,
+      "int32_accumulator": 21618,
+      "int8_dequantized": 1.3403186798095703,
+      "absolute_error": 0.0003217458724975586
+    },
+    {
+      "fp32_reference": 0.2638896405696869,
+      "int32_accumulator": 4212,
+      "int8_dequantized": 0.2611445188522339,
+      "absolute_error": 0.002745121717453003
+    },
+    {
+      "fp32_reference": 0.014956489205360413,
+      "int32_accumulator": 258,
+      "int8_dequantized": 0.01599603146314621,
+      "absolute_error": 0.0010395422577857971
+    }
+  ]
+}
