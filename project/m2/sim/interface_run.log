@@ -1,0 +1,5 @@
+VCD info: dumpfile project/m2/sim/interface.vcd opened for output.
+Write transaction stored config=00abcd1
+Read response returned data=a00abcd1
+PASS: interface
+project/m2/tb/tb_interface.sv:119: $finish called at 76000 (1ps)

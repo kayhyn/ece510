@@ -1,0 +1,4 @@
+VCD info: dumpfile project/m2/sim/compute_core.vcd opened for output.
+Representative 3x3 INT8 dot product expected=-110 result=-110
+PASS: compute_core
+project/m2/tb/tb_compute_core.sv:128: $finish called at 126000 (1ps)
