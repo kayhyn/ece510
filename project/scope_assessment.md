@@ -1,0 +1,3 @@
+# Scope Assessment
+
+The project scope is still reasonable, but M3 should narrow its immediate RTL goal to a pipelined single 3x3 INT8 dot-product lane before scaling toward the full MAC array. The OpenLane 2 synthesis run mapped the M2 lane to 1,119 cells and 12,293.04 um^2, so area is not the first concern. Timing is: at the 4.0 ns target, OpenSTA reports -15.0124 ns worst setup slack at the slow corner and -2.1117 ns even at the fast corner. For M3 I will keep the 250 MHz target and INT8/INT32 arithmetic, but insert pipeline registers around tap selection, multiplication, and accumulation. If that still misses timing, the fallback will be to relax the clock target before cutting precision, because the area and +0.0918 ns worst hold slack leave room for more registers.

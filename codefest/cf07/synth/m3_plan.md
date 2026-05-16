@@ -1,0 +1,3 @@
+# Milestone 3 Plan
+
+For M3, I will pipeline the compute core rather than keep the current single-cycle product-plus-accumulate path. The 4.0 ns target still matches the planned 250 MHz accelerator, but STA shows the current RTL is far off: worst setup slack is -15.0124 ns at `ss_100C_1v60`, and even the fast corner is -2.1117 ns. The first change will register the selected activation and weight before the multiplier, then register the product before the 32-bit accumulator. That splits byte selection, multiply, and add across cycles. I will keep INT8 inputs and INT32 accumulation because one lane is only 12,293.04 um^2 and hold is clean, with worst min slack +0.0918 ns. I will reduce precision only if pipelining still misses timing.

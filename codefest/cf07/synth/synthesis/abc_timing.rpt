@@ -1,0 +1,27 @@
+OpenLane 2 Yosys/ABC timing excerpt, RUN_4ns
+
+Clock target from config.yaml: 4.0 ns
+ABC-reported worst combinational delay: 8187.16 ps
+Estimated setup slack against 4.0 ns target: -4187.16 ps
+
+ABC critical path summary:
+Start-point = pi33 (\tap_index [0])
+End-point = po69 ($auto$rtlil.cc:3501:MuxGate$5695)
+Mapped sink register bit from netlist JSON: accumulator[29]
+
+Dominant cells listed along the ABC path:
+sky130_fd_sc_hd__mux4_2
+sky130_fd_sc_hd__nor2_2
+sky130_fd_sc_hd__or4_2
+sky130_fd_sc_hd__a41o_2
+sky130_fd_sc_hd__xnor2_2
+sky130_fd_sc_hd__xor2_2
+sky130_fd_sc_hd__a21oi_2
+sky130_fd_sc_hd__a2111o_2
+sky130_fd_sc_hd__and2_2
+sky130_fd_sc_hd__o21a_2
+
+Warnings from the ABC report:
+ABC: Warning: Detected 2 multi-output cells (for example, "sky130_fd_sc_hd__fa_1").
+ABC: Error: The network is combinational.
+ABC: Cannot find the default PI driving cell (sky130_fd_sc_hd__inv_2/Y) in the library.

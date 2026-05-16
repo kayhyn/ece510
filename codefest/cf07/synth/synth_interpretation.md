@@ -1,0 +1,7 @@
+# Synthesis Interpretation
+
+I ran OpenLane 2 synthesis on `compute_core` with `CLOCK_PERIOD: 4.0`, matching the 250 MHz project target. I then ran OpenSTA on the synthesized Sky130 HD netlist for tt, ss, and ff corners. The worst setup result is the slow `ss_100C_1v60` corner: data arrives at 18.5126 ns, is required at 3.5003 ns, and slack is -15.0124 ns. The typical corner is also failing at -5.7165 ns, while the fast corner fails by -2.1117 ns.
+
+The critical path is from flip-flop `_2132_`, whose Q is `tap_index[0]`, to flip-flop `_2167_`, whose Q is `accumulator[31]`. That is a sensible worst path for this RTL: the tap counter bit drives dynamic activation/weight byte selection, then the selected values pass through the signed multiply and into the high bit of the 32-bit accumulator. The dominant cells along the reported slow-corner path are `mux4`, `nor2`, `or4`, `a41o`, repeated `xnor2`/`xor2`, `and3`, `or2`, `o311a`, several `a2111o`, `a21oi`, `o21ai`, `a21o`, `a31o`, and `and2b`.
+
+OpenLane reports 1,119 mapped instances and total cell area of 12,293.04 um^2. The top contributors are `xnor2_2` at 176 cells and about 2,860 um^2, `dfxtp_2` at 70 flops and 1,488.93 um^2, and `xor2_2` at 65 cells and about 1,060 um^2. Yosys reported 0 unmapped cells and 0 synthesis check errors. Hold is clean in these reports; the worst min slack is +0.0918 ns in the fast corner. The main issue is setup timing, not area or hold.
