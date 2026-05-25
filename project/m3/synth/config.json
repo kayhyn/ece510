@@ -1,0 +1,17 @@
+{
+  "DESIGN_NAME": "top",
+  "VERILOG_FILES": [
+    "dir::../../m2/rtl/interface.sv",
+    "dir::../../m2/rtl/compute_core.sv",
+    "dir::../rtl/top.sv"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 10.0,
+  "SYNTH_ELABORATE_ONLY": false,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 700 700",
+  "PL_TARGET_DENSITY_PCT": 55,
+  "pdk::sky130*": {
+    "STD_CELL_LIBRARY": "sky130_fd_sc_hd"
+  }
+}

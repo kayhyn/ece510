@@ -1,0 +1,38 @@
+Power Report
+============
+
+OpenLane 2 run:
+  OpenLane v2.3.10
+  Run tag: M3_SYNTH
+  Command: openlane --run-tag M3_SYNTH --overwrite --to OpenROAD.STAPrePNR project/m3/synth/config.json
+  PDK/SCL: sky130A / sky130_fd_sc_hd
+
+The run completed through OpenROAD.STAPrePNR and produced pre-PNR power
+estimates for the timing corners. The full transcript is committed as
+project/m3/synth/openlane_run.log.
+
+Overall OpenLane metrics:
+
+  Total internal power:  1.5426778700202703e-03 W
+  Total switching power: 2.6350069674663246e-05 W
+  Total leakage power:   2.7075170550006078e-08 W
+  Total power:           1.5690550208091736e-03 W
+
+Slow-corner report, nom_ss_100C_1v60:
+
+  Group                    Internal      Switching      Leakage       Total
+  Sequential            9.958172e-04  8.994073e-07  4.831965e-06  1.001549e-03 W
+  Combinational         1.271934e-05  1.609072e-05  8.755142e-06  3.756521e-05 W
+  Clock                 0.000000e+00  0.000000e+00  0.000000e+00  0.000000e+00 W
+  Macro                 0.000000e+00  0.000000e+00  0.000000e+00  0.000000e+00 W
+  Pad                   0.000000e+00  0.000000e+00  0.000000e+00  0.000000e+00 W
+
+  Total                 1.008537e-03  1.699011e-05  1.358701e-05  1.039114e-03 W
+
+Interpretation:
+The estimate is pre-PNR and uses OpenLane's default activity assumptions rather
+than switching activity from the M3 co-simulation VCD. It is still a valid M3
+power-flow attempt and gives an early order-of-magnitude value. M4 should add
+activity-driven power using the end-to-end host workload or a post-synthesis
+VCD/SAIF so idle interface cycles and active compute cycles are represented
+more accurately.

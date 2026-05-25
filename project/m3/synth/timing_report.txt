@@ -1,0 +1,72 @@
+Timing Report
+=============
+
+OpenLane 2 run:
+  OpenLane v2.3.10
+  Run tag: M3_SYNTH
+  Command: openlane --run-tag M3_SYNTH --overwrite --to OpenROAD.STAPrePNR project/m3/synth/config.json
+  Clock: clk
+  Clock period: 10.0 ns
+  PDK/SCL: sky130A / sky130_fd_sc_hd
+
+The run completed successfully through OpenROAD.STAPrePNR. The full transcript
+is committed as project/m3/synth/openlane_run.log.
+
+Pre-PNR STA summary:
+
+  Overall setup WNS: -6.4845 ns
+  Overall setup TNS: -163.3642 ns
+  Setup violation count: 44
+  Overall hold WNS: 0 ns
+  Overall hold TNS: 0 ns
+  Hold violation count: 0
+
+Corner summary:
+
+  nom_tt_025C_1v80:
+    Setup worst slack: 1.4822 ns
+    Setup TNS: 0 ns
+    Setup violations: 0
+    Hold worst slack: 0.2181 ns
+    Hold TNS: 0 ns
+    Hold violations: 0
+
+  nom_ss_100C_1v60:
+    Setup worst slack: -6.4845 ns
+    Setup TNS: -163.3642 ns
+    Setup violations: 44
+    Hold worst slack: 0.7022 ns
+    Hold TNS: 0 ns
+    Hold violations: 0
+
+  nom_ff_n40C_1v95:
+    Setup worst slack: 4.6752 ns
+    Setup TNS: 0 ns
+    Setup violations: 0
+    Hold worst slack: 0.0455 ns
+    Hold TNS: 0 ns
+    Hold violations: 0
+
+Clock-period interpretation:
+The requested 10.0 ns period is met in the typical and fast corners, but not in
+the slow corner. The slow-corner worst path has 15.9783 ns data arrival time and
+9.4938 ns required time, producing -6.4845 ns setup slack. The estimated
+slow-corner minimum period is therefore roughly 16.49 ns, or about 60.6 MHz,
+before adding any margin beyond the reported setup requirement.
+
+Worst setup path:
+  Corner: nom_ss_100C_1v60
+  Startpoint: _3577_ (rising edge-triggered flip-flop clocked by clk)
+  Endpoint: _3637_ (rising edge-triggered flip-flop clocked by clk)
+  Named source net: compute_i.tap_index[0]
+  Data arrival: 15.978312 ns
+  Data required: 9.493772 ns
+  Slack: -6.484541 ns
+
+Dominant logic stages:
+The path starts at compute_i.tap_index[0], drives a mux4 selector for the
+packed activation/weight tap selection, then passes through a long chain of
+Sky130 combinational cells including o221a, a22oi, a211o, o21a, a21oi, and3b,
+or2, and2, xnor2, nand2b, xor2, a2111o, and additional a21o/and/or logic
+before reaching the endpoint flop. This matches the expected compute-core
+critical path: dynamic tap selection plus signed multiply/accumulate logic.

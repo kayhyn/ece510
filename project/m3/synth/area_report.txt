@@ -1,0 +1,57 @@
+Area / Cell Count Report
+========================
+
+OpenLane 2 run:
+  OpenLane v2.3.10
+  Run tag: M3_SYNTH
+  Command: openlane --run-tag M3_SYNTH --overwrite --to OpenROAD.STAPrePNR project/m3/synth/config.json
+  PDK/SCL: sky130A / sky130_fd_sc_hd
+
+The run completed successfully through Yosys synthesis and OpenROAD pre-PNR
+STA. The full transcript is committed as project/m3/synth/openlane_run.log.
+
+Top-level mapped synthesis statistics:
+
+  Number of wires: 1975
+  Number of wire bits: 2037
+  Number of public wires: 334
+  Number of public wire bits: 396
+  Number of ports: 12
+  Number of port bits: 74
+  Number of memories: 0
+  Number of memory bits: 0
+  Number of processes: 0
+  Number of cells: 2000
+
+Mapped Sky130 cell area:
+
+  Chip area for module top: 23129.683200 square micrometers
+  Sequential element area: 6891.609600 square micrometers
+  Sequential share: 29.80%
+
+Major cell counts:
+
+  sky130_fd_sc_hd__dfxtp_2: 324
+  sky130_fd_sc_hd__and2_2: 207
+  sky130_fd_sc_hd__mux2_1: 175
+  sky130_fd_sc_hd__nor2_2: 172
+  sky130_fd_sc_hd__xnor2_2: 162
+  sky130_fd_sc_hd__or2_2: 126
+  sky130_fd_sc_hd__a22o_2: 90
+  sky130_fd_sc_hd__o211a_2: 88
+  sky130_fd_sc_hd__a21oi_2: 79
+  sky130_fd_sc_hd__xor2_2: 76
+  sky130_fd_sc_hd__nand2_2: 66
+
+Yosys/OpenLane checks:
+
+  Unmapped instance count: 0
+  Synthesis check error count: 0
+  Inferred latch count: 0
+  Lint errors: 0
+  Lint timing-construct errors: 0
+  Lint warnings: 444
+
+The mapped area is dominated by the INT8 compute datapath and its flip-flops.
+The AXI command glue is smaller but adds register storage for operands, bias,
+result response state, and command decode.

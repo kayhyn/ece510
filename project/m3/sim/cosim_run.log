@@ -1,0 +1,4 @@
+VCD info: dumpfile project/m3/sim/top.vcd opened for output.
+Host programmed 9 activation taps, 9 weight taps, and bias over AXI4-Stream
+Representative 3x3 INT8 dot product expected=-110 observed=-110 response=bfffff92
+PASS: m3 end-to-end cosim
