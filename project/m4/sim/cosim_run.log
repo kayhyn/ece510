@@ -1,0 +1,9 @@
+VCD info: dumpfile project/m4/sim/mac_array.vcd opened for output.
+M4 MAC-ARRAY BENCH ------------------------------------
+  NUM_MAC=128  L=576  N_PIX=8
+  pixels_captured=8  errors=0
+  total_macs=589824
+  stream_cycles=4611
+  sustained_macs_per_cycle=127.916
+PASS: m4 128-MAC array end-to-end
+project/m4/tb/tb_mac_array.sv:147: $finish called at 46150000 (1ps)

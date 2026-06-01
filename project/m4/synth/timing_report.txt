@@ -1,0 +1,74 @@
+Timing Report -- M4 128-MAC Array
+==================================
+
+OpenLane 2 v2.3.10 (containerized), Design: mac_array, Clock target: 4.0 ns
+(250 MHz), PDK/SCL: sky130A / sky130_fd_sc_hd.
+
+----------------------------------------------------------------------------
+(A) Pre-PNR STA  (run tag M4_SYNTH, --to OpenROAD.STAPrePNR)
+----------------------------------------------------------------------------
+
+  Setup WNS (tt): -387.34 ns      Setup TNS (tt): -3,121,666 ns
+  Setup WNS (ss): -281.27 ns
+  Setup WNS (ff): -271.25 ns
+  Hold  WNS: +0.047 ns (clean, all corners)
+  Max-slew violations: 73k-114k    Max-fanout violations: 1,268
+
+  >>> These pre-PNR setup numbers are NOT a real Fmax. <<<
+
+  Worst-path evidence (tt corner, max.rpt):
+    Startpoint: FF driving net `b_valid`
+      Fanout = 5881, Cap = 16.5 pF, Slew = 81 ns
+    Next stage: inverter driving net `_021798_`
+      Fanout = 2313, single-gate Delay = 333.7 ns
+    Data arrival = 390.97 ns  ->  slack = -387.34 ns
+
+  Root cause: the shared broadcast nets (`activation`, `b_valid`, `b_first`,
+  `b_last`) drive all 128 lanes (thousands of sinks). Pre-PNR there is no
+  buffer insertion / clock-tree synthesis, so a single driver sees pF-scale
+  capacitance and hundreds of ns of estimated transition delay. The pipeline
+  LOGIC depth (8x8 multiply stage; 32-bit accumulate stage) is short; the
+  violation is entirely interconnect fanout, which place-and-route buffer
+  repair + CTS fixes. Hence a post-CTS STA is required for a meaningful Fmax.
+
+  Two floorplan attempts on the bare 128-lane array were blocked by artifacts of
+  synthesizing it with every weight/result as a top-level pin: global placement
+  overflow at a tight die, then PPL-0024 (5,134 IO pins exceed the die-perimeter
+  routing tracks). In a real accelerator these weights/results are internal
+  (fed by on-chip SRAM / accumulator buffers), not chip pins, so this is a
+  standalone-synthesis artifact, not a design limit.
+
+----------------------------------------------------------------------------
+(B) Real datapath Fmax -- placed single pipelined lane
+    (run tag M4_LANE, lane_wrap = mac_array #(.NUM_MAC(1)),
+     --to OpenROAD.STAMidPNR, post-global-placement STA)
+----------------------------------------------------------------------------
+
+The 128 lanes share identical per-lane logic; only the broadcast nets differ
+(a buffering/CTS concern, section A). So one placed lane gives the real datapath
+Fmax ceiling. At the 4.0 ns (250 MHz) target:
+
+  Corner             Setup WNS     Achieved period   Achieved Fmax
+  nom_ff_n40C_1v95   +1.049 ns     ~2.95 ns          ~339 MHz   (meets 250 MHz)
+  nom_tt_025C_1v80   -0.939 ns     ~4.94 ns          ~202 MHz
+  nom_ss_100C_1v60   -5.424 ns     ~9.42 ns          ~106 MHz   (sign-off corner)
+
+  Hold WNS: +0.047 ns (ff), +0.703 ns (ss), -0.294 ns (tt, minor, routing-fixable).
+  Placed lane stdcell area: 10,358.7 um^2.
+
+Worst setup path (max.rpt): startpoint = `u_lane.lane[0].bprod[15]` (Stage B
+product register), endpoint = an accumulator bit, through a long
+nor2/nand2b/or2/or3/o41a/o311a/a21oi/a31o chain. This is the **32-bit accumulate
+adder carry chain** (acc + prod_ext) -- the single dominant logic stage.
+
+Conclusion:
+  * The pipelined datapath does NOT meet the 250 MHz target at the slow sign-off
+    corner; it reaches ~106 MHz (ss) / ~202 MHz (tt), and only meets 250 MHz at
+    the fast corner. (Still a 1.75x slow-corner improvement over the M3
+    unpipelined lane's 60.6 MHz.)
+  * The 32-bit accumulate adder is the limiter -> directly motivates the
+    carry-save-adder change in project/remaining_tasks.md.
+  * The full array's achievable clock is bounded above by this datapath ceiling
+    and further reduced by the broadcast buffer tree (section A), so reaching
+    even ~200 MHz on the full array additionally requires pipelining/banking the
+    broadcast activation + valid/first/last nets.

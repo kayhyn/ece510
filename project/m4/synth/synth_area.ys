@@ -1,0 +1,11 @@
+# Yosys structural synthesis of the M4 128-MAC array to sky130_fd_sc_hd.
+# Produces a real mapped cell count and area for the 128-lane datapath.
+read_verilog -sv project/m4/rtl/mac_array.sv
+hierarchy -top mac_array
+synth -top mac_array -flatten
+dfflibmap -liberty LIBERTY_TT
+abc -liberty LIBERTY_TT
+setundef -zero
+clean -purge
+tee -o project/m4/synth/yosys_stat.txt stat -liberty LIBERTY_TT
+write_verilog -noattr project/m4/synth/mac_array.netlist.v

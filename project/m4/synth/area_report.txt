@@ -1,0 +1,44 @@
+Area / Cell Count Report -- M4 128-MAC Array
+=============================================
+
+OpenLane 2 run:
+  OpenLane v2.3.10 (containerized via colima/docker, image
+    ghcr.io/efabless/openlane2:2.3.10)
+  Run tag: M4_SYNTH
+  Command: openlane --run-tag M4_SYNTH --overwrite --to OpenROAD.STAPrePNR
+           project/m4/synth/config.json
+  PDK/SCL: sky130A / sky130_fd_sc_hd
+  Design: mac_array (NUM_MAC=128, DATA_WIDTH=8, ACC_WIDTH=32)
+
+Mapped synthesis statistics (OpenLane yosys):
+
+  Number of cells:           99,710
+  Chip area (module top):    1,065,403.06 um^2  (1.065 mm^2)
+  Synthesis check errors:    0
+  Unmapped cells:            0
+  Inferred latches:          0
+
+Standalone yosys cross-check (project/m4/synth/synth_area.ys):
+
+  Number of cells:           96,618
+  Chip area:                 773,510.61 um^2
+  Sequential element area:   225,796.56 um^2 (29.19%)
+  Flip-flops (dfxtp):        11,279  == 128 lanes x (8b weight + 16b product
+                                       + 32b acc + 32b result) + control tags
+
+(The two tools differ in synthesis strategy and area accounting; the OpenLane
+number is used as the authoritative full-flow figure.)
+
+Comparison to the M3 single 9-tap lane (run tag M3_SYNTH, top = interface+core):
+
+  M3 single lane:   2,000 cells,   23,129.68 um^2
+  M4 128-MAC array: 99,710 cells, 1,065,403.06 um^2
+
+  Area ratio: ~46x cells / ~46x area for 128 parallel lanes. The sub-128x
+  scaling reflects that the M4 array drops the per-lane AXI command glue and
+  the runtime tap-select mux present in the M3 top, and shares one control
+  pipeline across all 128 lanes.
+
+Dominant cell types (standalone yosys): dfxtp_1 (11,279 FFs), xnor2_1 (11,883),
+nor2_1 (14,835), nand2_1 (9,476), xor2_1 (5,784), maj3_1 (3,812) -- i.e. the
+128 signed 8x8 multipliers plus the 128 32-bit accumulators dominate.

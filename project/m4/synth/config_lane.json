@@ -1,0 +1,15 @@
+{
+  "DESIGN_NAME": "lane_wrap",
+  "VERILOG_FILES": [
+    "dir::../rtl/mac_array.sv",
+    "dir::lane_wrap.sv"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 4.0,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 300 300",
+  "PL_TARGET_DENSITY_PCT": 50,
+  "pdk::sky130*": {
+    "STD_CELL_LIBRARY": "sky130_fd_sc_hd"
+  }
+}
