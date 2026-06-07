@@ -1,0 +1,9 @@
+VCD info: dumpfile project/m4/sim/final_top.vcd opened for output.
+M4 TOP END-TO-END BENCH --------------------------------
+  NUM_MAC=128  L=576  N_PIX=8
+  pixels_captured=8  errors=0
+  total_macs=589824
+  stream_cycles=4613
+  sustained_macs_per_cycle=127.861
+PASS: m4 128-MAC array end-to-end
+project/m4/tb/tb_top.sv:162: $finish called at 46170000 (1ps)
