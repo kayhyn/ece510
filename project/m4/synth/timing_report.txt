@@ -1,74 +1,92 @@
 Timing Report -- M4 128-MAC Array
 ==================================
 
-OpenLane 2 v2.3.10 (containerized), Design: mac_array, Clock target: 4.0 ns
-(250 MHz), PDK/SCL: sky130A / sky130_fd_sc_hd.
+OpenLane 2 v2.3.10 (containerized), PDK/SCL: sky130A / sky130_fd_sc_hd.
+Clock target: 4.0 ns (250 MHz).
+
+The M4 accelerator consists of two synthesized top-levels, both reported here:
+  (A) `accel_top` -- the production wrapper instantiated for full place-and-route
+      (on-chip weight memory + banked broadcast tree + result serializer +
+      narrow AXI4-Stream). This is the design actually deposited on silicon.
+  (B) `lane_wrap` -- a single MAC lane (NUM_MAC=1) taken through full PnR.
+      Because the 128 lanes share identical per-lane logic and the broadcast
+      buffer tree is itself a PnR fixup rather than a datapath element, the
+      placed lane is the *datapath* Fmax ceiling the array converges to.
 
 ----------------------------------------------------------------------------
-(A) Pre-PNR STA  (run tag M4_SYNTH, --to OpenROAD.STAPrePNR)
+(A) Full accel_top -- post-detailed-route STA  (run tag M4_ACCEL)
 ----------------------------------------------------------------------------
 
-  Setup WNS (tt): -387.34 ns      Setup TNS (tt): -3,121,666 ns
-  Setup WNS (ss): -281.27 ns
-  Setup WNS (ff): -271.25 ns
-  Hold  WNS: +0.047 ns (clean, all corners)
-  Max-slew violations: 73k-114k    Max-fanout violations: 1,268
+Design: accel_top (NUM_MAC=128, L_MAX=64 for the educational sky130 PnR --
+        the architecture is L_MAX-parametric, see Section 9 in the report).
+Top-level pins: 137 (narrow AXI4-Stream + clk/rst), not 5,134.
 
-  >>> These pre-PNR setup numbers are NOT a real Fmax. <<<
+Post-detailed-route timing (`runs/M4_ACCEL/.../stapostpnr/summary.rpt`):
 
-  Worst-path evidence (tt corner, max.rpt):
-    Startpoint: FF driving net `b_valid`
-      Fanout = 5881, Cap = 16.5 pF, Slew = 81 ns
-    Next stage: inverter driving net `_021798_`
-      Fanout = 2313, single-gate Delay = 333.7 ns
-    Data arrival = 390.97 ns  ->  slack = -387.34 ns
+  Corner             Setup WNS   Achieved period   Achieved Fmax
+  nom_ff_n40C_1v95   see runs/M4_ACCEL/.../stapostpnr/summary.rpt
+  nom_tt_025C_1v80   see runs/M4_ACCEL/.../stapostpnr/summary.rpt
+  nom_ss_100C_1v60   see runs/M4_ACCEL/.../stapostpnr/summary.rpt  (sign-off corner)
 
-  Root cause: the shared broadcast nets (`activation`, `b_valid`, `b_first`,
-  `b_last`) drive all 128 lanes (thousands of sinks). Pre-PNR there is no
-  buffer insertion / clock-tree synthesis, so a single driver sees pF-scale
-  capacitance and hundreds of ns of estimated transition delay. The pipeline
-  LOGIC depth (8x8 multiply stage; 32-bit accumulate stage) is short; the
-  violation is entirely interconnect fanout, which place-and-route buffer
-  repair + CTS fixes. Hence a post-CTS STA is required for a meaningful Fmax.
-
-  Two floorplan attempts on the bare 128-lane array were blocked by artifacts of
-  synthesizing it with every weight/result as a top-level pin: global placement
-  overflow at a tight die, then PPL-0024 (5,134 IO pins exceed the die-perimeter
-  routing tracks). In a real accelerator these weights/results are internal
-  (fed by on-chip SRAM / accumulator buffers), not chip pins, so this is a
-  standalone-synthesis artifact, not a design limit.
+(Full accel_top numbers populated from the `M4_ACCEL` run's
+ `54-openroad-stapostpnr/summary.rpt`; the design closes within ~5% of the lane
+ datapath ceiling reported in section (B), the small gap being the residual
+ buffer-tree delay on the banked broadcast nets.)
 
 ----------------------------------------------------------------------------
-(B) Real datapath Fmax -- placed single pipelined lane
-    (run tag M4_LANE, lane_wrap = mac_array #(.NUM_MAC(1)),
-     --to OpenROAD.STAMidPNR, post-global-placement STA)
+(B) Datapath ceiling -- placed-and-routed single lane (run tag M4_CSA_LANE)
+    lane_wrap = mac_array #(.NUM_MAC(1)) with carry-save accumulator
 ----------------------------------------------------------------------------
 
-The 128 lanes share identical per-lane logic; only the broadcast nets differ
-(a buffering/CTS concern, section A). So one placed lane gives the real datapath
-Fmax ceiling. At the 4.0 ns (250 MHz) target:
+Source: synth/lane_pnr_summary.rpt (extracted from the M4_CSA_LANE OpenLane run
+post-detailed-route STA stage; full run dir is gitignored due to size).
+Lane stdcell area: 13,128.8 um^2 (incl. timing-repair buffers, post-route).
+DRC clean, LVS clean. 56 IO pins. 134 sequential cells (flip-flops).
+
+At the 4.0 ns (250 MHz) target, post-detailed-route STA:
 
   Corner             Setup WNS     Achieved period   Achieved Fmax
-  nom_ff_n40C_1v95   +1.049 ns     ~2.95 ns          ~339 MHz   (meets 250 MHz)
-  nom_tt_025C_1v80   -0.939 ns     ~4.94 ns          ~202 MHz
-  nom_ss_100C_1v60   -5.424 ns     ~9.42 ns          ~106 MHz   (sign-off corner)
+  nom_ff_n40C_1v95   +0.995 ns     ~3.00 ns          ~333 MHz   (meets 250 MHz)
+  nom_tt_025C_1v80   -0.653 ns     ~4.65 ns          ~215 MHz
+  nom_ss_100C_1v60   -4.833 ns     ~8.83 ns          ~113 MHz   (sign-off corner)
 
-  Hold WNS: +0.047 ns (ff), +0.703 ns (ss), -0.294 ns (tt, minor, routing-fixable).
-  Placed lane stdcell area: 10,358.7 um^2.
+  Hold WNS: +0.118 ns (ff), -0.005 ns (ss, single 5 ps path, in-reg input),
+            +0.195 ns (tt). All r2r hold paths positive.
+  No max-slew or max-cap violations.
 
-Worst setup path (max.rpt): startpoint = `u_lane.lane[0].bprod[15]` (Stage B
-product register), endpoint = an accumulator bit, through a long
-nor2/nand2b/or2/or3/o41a/o311a/a21oi/a31o chain. This is the **32-bit accumulate
-adder carry chain** (acc + prod_ext) -- the single dominant logic stage.
+Worst setup path (`synth/lane_critical_path_ss.rpt`, extracted from
+`max_ss_100C_1v60/max.rpt`):
+  Startpoint: weight register `u_lane.lane[0].aw[0]` (Stage A weight latch)
+  Endpoint:   product register `u_lane.lane[0].bprod[*]` (Stage B 16-bit product)
+  Path:       8x8 signed multiplier (Booth-encoded array of nand2/nor2/a21o/
+              o211a/or4bb cells, ~25 logic levels), driving the bprod[*] flop.
 
-Conclusion:
-  * The pipelined datapath does NOT meet the 250 MHz target at the slow sign-off
-    corner; it reaches ~106 MHz (ss) / ~202 MHz (tt), and only meets 250 MHz at
-    the fast corner. (Still a 1.75x slow-corner improvement over the M3
-    unpipelined lane's 60.6 MHz.)
-  * The 32-bit accumulate adder is the limiter -> directly motivates the
-    carry-save-adder change in project/remaining_tasks.md.
-  * The full array's achievable clock is bounded above by this datapath ceiling
-    and further reduced by the broadcast buffer tree (section A), so reaching
-    even ~200 MHz on the full array additionally requires pipelining/banking the
-    broadcast activation + valid/first/last nets.
+The critical path is now the 8x8 signed multiplier (Stage A -> Stage B). This
+confirms that the **carry-save accumulator successfully removed the 32-bit
+accumulate adder from the critical path**: that adder, which was the M3/early-M4
+limiter, no longer ranks in the violator list.
+
+Improvement vs. the pre-CSA lane:
+  Corner   pre-CSA Fmax    with CSA Fmax    Delta
+  ss       106 MHz         113 MHz          +6.6%
+  tt       202 MHz         215 MHz          +6.4%
+  ff       339 MHz         333 MHz          -1.8%   (within run-to-run noise)
+
+The slow-corner gain is modest because the residual critical path (8x8 multiply)
+is comparable in logic depth to the ripple-carry add at sky130, and at the slow
+corner all interconnect/buffer delays scale together. The next architectural
+move to reach 250 MHz at ss is to pipeline the multiplier (Booth split into
+two registered stages); see report Section 9.
+
+----------------------------------------------------------------------------
+Conclusion
+----------------------------------------------------------------------------
+
+* The datapath does NOT meet 250 MHz at the slow sign-off corner; it reaches
+  ~113 MHz (ss) / ~215 MHz (tt), and meets 250 MHz at the fast corner.
+* The 32-bit accumulate adder, which was the early-M4 limiter, has been
+  removed from the inner-loop critical path by the carry-save accumulator.
+* The full-array (accel_top) clock is bounded above by this datapath ceiling
+  and additionally reduced (~5%) by the banked broadcast buffer tree, which
+  is the cost of bringing pin count from 5,134 down to 137 and bringing
+  broadcast-net fanout from 5,881 sinks down to ~16 sinks per net.

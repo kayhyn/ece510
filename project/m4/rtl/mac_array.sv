@@ -28,8 +28,16 @@
  * Pipeline (3 stages; removes the M3 critical path's mux + serial mul/add):
  *   Stage A  capture activation/weights and the valid/first/last tags
  *   Stage B  signed 8x8 -> 16b multiply, registered
- *   Stage C  sign-extend to ACC_WIDTH and accumulate; emit on tagged-last
+ *   Stage C  carry-save accumulate; on tagged-last, resolve (sum+carry) and
+ *            emit the final result
  *   Latency from a last element to out_valid = 3 cycles; throughput = 1 elem/cyc.
+ *
+ * Carry-save accumulator (Task 3 improvement):
+ *   The inner-loop accumulation is done in carry-save (redundant) form:
+ *   two ACC_WIDTH registers (cs_sum, cs_carry) avoid a full carry-propagate
+ *   add each cycle. The single carry-propagate add (sum + carry) is performed
+ *   ONLY on the `last` tag, removing the 32-bit ripple-carry adder from the
+ *   critical path of the inner loop. Expected to significantly raise Fmax.
  *
  * Implementation note:
  *   The shared control pipeline (valid/first/last tags and the broadcast
@@ -100,34 +108,65 @@ module mac_array #(
     end
 
     // Per-lane datapath: one MAC lane per output channel.
+    // Uses carry-save accumulation to remove the 32-bit ripple-carry adder
+    // from the inner-loop critical path.
     genvar gi;
     generate
         for (gi = 0; gi < NUM_MAC; gi = gi + 1) begin : lane
             logic signed [DATA_WIDTH-1:0] aw;       // Stage A weight
             logic signed [PROD_WIDTH-1:0] bprod;    // Stage B product
-            logic signed [ACC_WIDTH-1:0]  acc;      // Stage C accumulator
+            logic signed [ACC_WIDTH-1:0]  cs_sum;   // Carry-save sum
+            logic signed [ACC_WIDTH-1:0]  cs_carry; // Carry-save carry
 
             logic signed [ACC_WIDTH-1:0]  prod_ext;
-            logic signed [ACC_WIDTH-1:0]  acc_next;
+
+            // Carry-save addition: 3-input XOR for sum, majority for carry.
+            // new_sum   = cs_sum ^ cs_carry ^ prod_ext
+            // new_carry = (cs_sum & cs_carry) | (cs_sum & prod_ext) | (cs_carry & prod_ext)
+            // These are bitwise operations -- no carry propagation!
+            logic signed [ACC_WIDTH-1:0] csa_sum;
+            logic signed [ACC_WIDTH-1:0] csa_carry;
+
+            always_comb begin
+                prod_ext = {{(ACC_WIDTH-PROD_WIDTH){bprod[PROD_WIDTH-1]}}, bprod};
+                csa_sum   = cs_sum ^ cs_carry ^ prod_ext;
+                csa_carry = ((cs_sum & cs_carry) | (cs_sum & prod_ext) | (cs_carry & prod_ext)) << 1;
+            end
 
             always_ff @(posedge clk) begin
                 if (rst) begin
-                    aw    <= '0;
-                    bprod <= '0;
-                    acc   <= '0;
+                    aw       <= '0;
+                    bprod    <= '0;
+                    cs_sum   <= '0;
+                    cs_carry <= '0;
                     results[gi*ACC_WIDTH +: ACC_WIDTH] <= '0;
                 end else begin
                     // Stage A: capture this lane's weight
                     aw    <= $signed(weights[gi*DATA_WIDTH +: DATA_WIDTH]);
                     // Stage B: multiply Stage-A operands
                     bprod <= a_act * aw;
-                    // Stage C: accumulate / emit
+                    // Stage C: carry-save accumulate / emit
                     if (b_valid) begin
-                        prod_ext = {{(ACC_WIDTH-PROD_WIDTH){bprod[PROD_WIDTH-1]}}, bprod};
-                        acc_next = b_first ? prod_ext : (acc + prod_ext);
-                        acc <= acc_next;
+                        if (b_first) begin
+                            // First element: load product directly, clear carry
+                            cs_sum   <= prod_ext;
+                            cs_carry <= '0;
+                        end else begin
+                            // Inner loop: carry-save add (no carry propagation!)
+                            cs_sum   <= csa_sum;
+                            cs_carry <= csa_carry;
+                        end
                         if (b_last) begin
-                            results[gi*ACC_WIDTH +: ACC_WIDTH] <= acc_next;
+                            // Last element: resolve carry-save to final result.
+                            // This is the ONLY cycle that does a full add.
+                            if (b_first) begin
+                                // Single-element reduction (L=1): just the product
+                                results[gi*ACC_WIDTH +: ACC_WIDTH] <= prod_ext;
+                            end else begin
+                                // Normal case: resolve the CSA including this
+                                // cycle's product (already folded into csa_sum/csa_carry)
+                                results[gi*ACC_WIDTH +: ACC_WIDTH] <= csa_sum + csa_carry;
+                            end
                         end
                     end
                 end

@@ -1,0 +1,11 @@
+Loading weights (128 lanes x 576 taps)...
+Weight load complete.
+M4 ACCEL_TOP END-TO-END BENCH ----------------------------
+  NUM_MAC=128  L=576  N_PIX=8  BANKS=8
+  pixels_captured=8  errors=0
+  total_macs=589824
+  total_cycles=5637 (includes 128-beat result drain per pixel)
+  compute_beats=4608  drain_beats=1024
+  sustained_macs_per_compute_cycle=128.000
+PASS: accel_top 128-MAC with weight mem + serializer
+project/m4/tb/tb_accel_top.sv:206: $finish called at 1530990000 (1ps)

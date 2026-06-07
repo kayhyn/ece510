@@ -55,11 +55,11 @@ or a wide off-chip interface. It also justified INT8: shrinking operands does no
 help a compute-bound kernel via bandwidth, but it shrinks each multiplier ~4x
 versus FP32, letting more MACs fit in a given area -- the lever that actually
 moves a compute-bound design. Figure 1 confirms the outcome: the measured M4
-point sits on the flat (compute) portion of the accelerator roofline at the
+points sit on the flat (compute) portion of the accelerator roofline at the
 kernel's AI, vertically above the software baseline by the measured speedup, and
 nowhere near the bandwidth-limited diagonal.
 
-![Roofline (log-log): the 3x3 INT8 conv kernel at AI = 672 FLOP/byte sits on the compute-bound ceiling. The measured M4 accelerator points (tt 51.8 GFLOP/s, ss 27.2 GFLOP/s) are plotted against the M1 software baseline (2.48 GFLOP/s); the arrow marks the 20.9x typical-corner speedup.](figures/fig1_roofline.png){width=85%}
+![Roofline (log-log): the 3x3 INT8 conv kernel at AI = 672 FLOP/byte sits on the compute-bound ceiling. The measured M4 accelerator points (tt 55.0 GFLOP/s, ss 29.0 GFLOP/s) are plotted against the M1 software baseline (2.48 GFLOP/s); the arrow marks the 22.2x typical-corner speedup.](figures/fig1_roofline.png){width=85%}
 
 # 3. Precision and data format
 
@@ -83,6 +83,10 @@ as spending more area/bandwidth than an edge detector needs; INT4 was rejected a
 too risky without a quantization-aware-trained model or calibration set in the
 repository. The 32-bit accumulator width is chosen so the worst-case 576-element
 reduction of INT8 products (|product| <= 16,384, sum <= ~9.4M) cannot overflow.
+Internally the accumulator is held in **carry-save (redundant sum, carry) form**
+across the inner reduction loop, with a single carry-propagate resolve on the
+`last` tag (Section 4); this is a timing choice, not a precision choice, and
+produces bit-identical results to a plain ripple-carry accumulator.
 
 # 4. Dataflow and architecture
 
@@ -100,49 +104,80 @@ actually implements (`rtl/mac_array.sv` header and body), not an aspiration.
 **Compute engine.** `mac_array` is a parameterized array (NUM_MAC=128,
 DATA_WIDTH=8, ACC_WIDTH=32). Each lane is a **3-stage pipeline**: Stage A
 captures the activation and the lane's weight; Stage B performs the signed 8x8
--> 16-bit multiply into a registered product; Stage C sign-extends to 32 bits and
-accumulates, emitting the result when the `last` tag arrives. A shared control
-pipeline carries `valid/first/last` tags alongside the data so that
-accumulations for back-to-back output pixels stream with **no bubble**. `first`
-clears the accumulator (starts a new pixel); `last` emits the channel result.
-This explicitly removes the M3 single-lane critical path (a runtime
-tap-select mux -> multiply -> add in one cycle) and its restart penalty.
+-> 16-bit multiply into a registered product; Stage C accumulates the
+sign-extended product into a **carry-save** running sum, and on `last`
+collapses the (sum, carry) pair into the final result. The carry-save
+formulation replaces the per-cycle 32-bit ripple-carry add that would otherwise
+dominate the critical path: in the inner reduction, the new sum is a bitwise
+3-input XOR of (cs_sum, cs_carry, prod_ext) and the new carry is the bitwise
+majority shifted left by one -- no carry propagation. Only the final resolve on
+`last` does a single full 32-bit add. A shared control pipeline carries
+`valid/first/last` tags alongside the data so that accumulations for back-to-back
+output pixels stream with **no bubble**. `first` clears the accumulator (starts
+a new pixel); `last` emits the channel result. This removes both the M3
+single-lane critical path (a runtime tap-select mux + multiply + add in one
+cycle) and the early-M4 limiter (the 32-bit ripple add).
 
-![Block diagram of the integrated accelerator top: an FPGA-SoC host drives the AXI4-Stream interface `stream_if`, which feeds the broadcast activation, 128 per-lane weights, and valid/first/last tags into the 128-lane `compute_core`/`mac_array`; 128 INT32 channel results drain back through the interface.](figures/fig2_block_diagram.png){width=92%}
+![Block diagram of the integrated accelerator top: an FPGA-SoC host drives the narrow AXI4-Stream interface; `accel_top` decodes LOAD_WEIGHT and COMPUTE opcodes, holds 128 per-lane weight banks, broadcasts the activation through a banked fan-out tree into the 128-lane `mac_array`, and serializes 128 INT32 channel results back over the output stream.](figures/fig2_block_diagram.png){width=92%}
 
-**Memory hierarchy and data path.** In the intended FPGA-SoC deployment, weights
-live in on-chip SRAM (the 72 KB weight set) feeding the per-lane weight ports,
-activations arrive through a line-buffer/stream, and results drain to an output
-buffer; this on-chip path supplies ~32 GB/s, far above demand (Section 5). The
-integrated top (Figure 2) wires the AXI4-Stream interface `stream_if` to the
-compute core `compute_core` (a transparent wrapper of `mac_array`). The honest
-scope note: the **standalone OpenLane run synthesized the compute core
-(`mac_array`) directly** (`synth/config.json`); `stream_if`, `compute_core`, and
-`top` are the integration RTL, verified end-to-end in simulation (Section 6) but
-not separately re-synthesized, because the compute fabric dominates area, timing,
-and power and because exposing every weight/result as a chip pin created a
-floorplan artifact (Section 9).
+**Top-level wrapper (`accel_top`).** The synthesized production wrapper
+(`rtl/accel_top.sv`) wraps the compute array with three things the bare
+`mac_array` lacks for realistic place-and-route: (i) **on-chip weight memory**
+-- 128 per-lane single-port register banks, each L_MAX entries x 8 bits,
+declared via a generate block so each lane has its own private bank
+(prevents yosys from collapsing into a 128-read-port multi-port memory);
+(ii) a **banked broadcast fan-out tree** -- one cycle of registered fan-out
+re-broadcasts `activation`, `valid`, `first`, `last` into 8 banks of 16 lanes
+each so no single net drives more than ~16 sinks; (iii) a **result serializer**
+-- on each `out_valid` pulse, latches all 128 INT32 channel results into a
+buffer and drains them one channel per beat over a 64-bit AXI4-Stream output.
+Section 5 describes the external interface this exposes.
 
-![Output-stationary, weight-streaming dataflow: one INT8 activation is broadcast per cycle, each lane streams its own weight, and partial sums stay resident in per-lane accumulators until the `last` tag emits the channel result.](figures/fig3_dataflow.png){width=92%}
+A second, thinner wrapper (`rtl/top.sv` + `rtl/compute_core.sv` + the
+wide-bus `stream_if` in `rtl/interface.sv`) is retained for the unit-level
+cycle-throughput testbench (`tb/tb_top.sv`); it exposes the full 1,024-bit
+weight bus and 4,096-bit result bus directly so the testbench can drive the
+array bus-naturally and verify the broadcast/accumulate semantics in isolation.
+The two wrappers share `mac_array` verbatim.
+
+![Output-stationary, weight-streaming dataflow: one INT8 activation is broadcast per cycle, each lane reads its own weight from a per-lane bank, and partial sums stay resident in per-lane (carry-save) accumulators until the `last` tag emits the channel result.](figures/fig3_dataflow.png){width=92%}
 
 # 5. Hardware interface
 
 The interface is **AXI4-Stream**, selected in M1 as the native streaming
 transport on an FPGA-SoC host (e.g., Zynq UltraScale+), where an ARM core
 orchestrates the model and the programmable logic holds the accelerator. M4
-realizes it as `rtl/interface.sv` (`stream_if`): an input stream carries one
-reduction-element beat per cycle (broadcast activation + 128 packed weights +
-`first`/`last`), registered once before the array; an output stream drains one
-128-channel INT32 result per completed pixel, held until the host asserts
-`m_tready`. This is the scale-up of the M2/M3 single-word command interface
-(`axis_interface`) to a wide streaming-data port that can feed all 128 lanes.
+realizes it on the production wrapper `accel_top` as a 64-bit, opcode-tagged
+input stream plus a 64-bit serialized output stream:
+
+  * **Input stream `s_tdata[63:0]`**: opcode-tagged beats.
+    `LOAD_WEIGHT` (opcode `0x01`) carries `{lane[6:0], addr[9:0], weight[7:0]}`
+    and is used during a one-time weight-load phase to fill the 128 per-lane
+    banks. `COMPUTE` (opcode `0x02`) carries `{first, last, activation[7:0]}`
+    and drives the streaming reduction one element per cycle; each beat is
+    the same broadcast-activation + tag pair the bare `mac_array` consumes,
+    just transported through the narrow port.
+  * **Output stream `m_tdata[63:0]`**: `{channel[6:0], result[31:0]}` per
+    beat. After each completed pixel, the serializer drains the 128 channel
+    results one per beat, sequentially.
+
+This is a deliberate scale-up of the M2/M3 single-word AXI4-Stream command port
+(`axis_interface`) to a real streaming-data port that can feed all 128 lanes,
+done by keeping the streaming abstraction (`valid/ready/data` + side tags) and
+adding the opcode tag so the same port serves both weight load and compute.
+A second, parallel wrapper (`rtl/interface.sv`'s `stream_if`) exposes the full
+1,024-bit weight bus and 4,096-bit result bus directly; this is the test
+interface used by `tb_top.sv` to drive the array bus-naturally, not the
+silicon-facing interface.
 
 **Effective bandwidth at target throughput.** At the typical (tt) measured
-operating point (7.70 ms/layer, Section 8), the layer moves 592,896 operand
-bytes, so the *required* off-accelerator bandwidth is only **~0.077 GB/s**; even
-at the fast corner it is ~0.13 GB/s. A 32-bit @ 100 MHz AXI4-Stream link is
-rated at **0.4 GB/s** -- a **4.3x headroom** at the M1 target throughput
+operating point (7.26 ms/layer, Section 8), the layer moves 592,896 operand
+bytes, so the *required* off-accelerator bandwidth is only **~0.082 GB/s**;
+even at the fast corner it is ~0.13 GB/s. A 32-bit @ 100 MHz AXI4-Stream link
+is rated at **0.4 GB/s** -- a **~5x headroom** at the M1 target throughput
 (`interface_selection.md`) -- and the on-chip operand path provides ~32 GB/s.
+The narrow 64-bit `accel_top` port has even more headroom at the actually
+sustained clock rate.
 
 **Is the design interface-bound? No, and it is quantified.** Required bandwidth
 (~0.08-0.13 GB/s) is 3-400x below the available interface/on-chip bandwidth, and
@@ -158,145 +193,187 @@ golden reference**, building on the M2 and M3 testbenches. M2 verified the singl
 INT8 dot-product `compute_core` and the AXI4-Stream `interface` separately
 (`tb_compute_core.sv`, `tb_interface.sv`); M3 verified the integrated single-lane
 `top` end-to-end through host-side AXI4-Stream transactions only
-(`m3/tb/tb_top.sv`, `PASS: m3 end-to-end cosim`). M4's `tb/tb_top.sv` continues
-this contract at 128-lane scale: it drives the integrated `top` **exclusively
-through the AXI4-Stream ports** (never poking the array) and streams a
-representative slice of the dominant convolution -- 8 output pixels, each a full
-L=576 reduction, 128 channels -- back-to-back with no bubbles.
+(`m3/tb/tb_top.sv`, `PASS: m3 end-to-end cosim`). M4 has **two coordinated
+end-to-end testbenches**:
 
-**What the tests cover.** (a) *Functional correctness*: an independent
-SystemVerilog reference recomputes all 8x128 = 1,024 channel results and compares
-every one; the run reports **errors=0** (`sim/final_run.log`). This exercises the
-signed 8x8 multiply, sign-extension, 32-bit accumulation, the `first` clear and
-`last` emit semantics, and the interface's input registering and output holding.
-(b) *Sustained throughput / no-bubble streaming*: the testbench measures cycles
-for the streamed region, confirming **127.861 MAC/cycle (99.89% of 128)**, which
-verifies that back-to-back pixel accumulations incur no restart penalty -- the
-specific M3 defect this design targets. (c) *Handshake behavior*: the testbench
-holds `m_tready` and honors `s_tready` backpressure, and Figure 4 (extracted from
-the run's VCD) annotates one end-to-end transaction: the input `s_tvalid`/
-`s_tready` handshake and `first` tag entering the array, and the first 128-channel
-result draining on `m_tvalid`/`m_tready` after the 576-element reduction. The
-M2 precision study (Section 3) provides the numerical-accuracy verification that
-complements this logical verification.
+  * `tb/tb_top.sv` drives the bus-natural integration `top` and verifies the
+    128-lane compute fabric directly (`sim/final_run.log`).
+  * `tb/tb_accel_top.sv` drives the production wrapper `accel_top` through its
+    narrow 64-bit AXI4-Stream ports, exercising the full weight-load phase,
+    streaming compute phase, and serialized result drain
+    (`sim/final_accel_run.log`).
 
-![Annotated end-to-end waveform from the final simulation VCD. Panel A: the input AXI4-Stream handshake and `first` tag entering the array. Panel B: after the L=576 reduction, `core_out_valid` pulses and the 128-channel result is accepted on `m_tvalid`/`m_tready`.](figures/fig4_waveform.png){width=95%}
+Both testbenches stream the **same** representative slice of the dominant
+convolution -- 8 output pixels, each a full L=576 reduction, 128 channels --
+back-to-back with no bubbles, and both compare every one of the 8x128 = 1,024
+channel results against an independent SystemVerilog golden reference.
+
+**What the tests cover.** (a) *Functional correctness*: both runs report
+**errors=0**, exercising the signed 8x8 multiply, sign-extension, the
+carry-save accumulate and the final resolve, the `first`/`last` clear-and-emit
+semantics, and (in `tb_accel_top`) the on-chip weight memory, the banked
+broadcast tree, and the result serializer. (b) *Sustained throughput / no-bubble
+streaming*: `tb_top` measures **127.861 MAC/cycle (99.89% of 128)** including
+the 3-cycle pipeline fill/drain across the 8-pixel stream; `tb_accel_top`
+measures **128.000 MAC/cycle during the compute phase**, with the 1,024-beat
+serializer drain amortized across pixels. (c) *Handshake behavior*:
+`tb_accel_top` honors `s_tready` backpressure during the weight-load and
+compute phases and asserts `m_tready` while consuming serialized results.
+Figure 4 (extracted from `tb_top`'s VCD) annotates one end-to-end transaction:
+the input `s_tvalid`/`s_tready` handshake and `first` tag entering the array,
+and the first 128-channel result draining on `m_tvalid`/`m_tready` after the
+576-element reduction. The M2 precision study (Section 3) provides the
+numerical-accuracy verification that complements this logical verification.
+
+![Annotated end-to-end waveform from `tb_top`'s VCD. Panel A: the input AXI4-Stream handshake and `first` tag entering the array. Panel B: after the L=576 reduction, `core_out_valid` pulses and the 128-channel result is accepted on `m_tvalid`/`m_tready`.](figures/fig4_waveform.png){width=95%}
 
 # 7. Synthesis results
 
-Synthesis used **OpenLane 2 v2.3.10 on the sky130A / sky130_fd_sc_hd PDK**, with
-the compute core (`mac_array`, NUM_MAC=128) as the design and a 4.0 ns
-(250 MHz) target clock (`synth/config.json`, `synth/openlane_run.log`).
+Synthesis used **OpenLane 2 v2.3.10 on the sky130A / sky130_fd_sc_hd PDK**,
+with two coordinated runs: `accel_top` (full place-and-route of the production
+wrapper, `synth/config_accel.json`, run tag `M4_ACCEL`) and a single placed
+lane (`lane_wrap = mac_array #(.NUM_MAC(1))`, `synth/config_lane.json`, run
+tag `M4_CSA_LANE`). The lane is included because the 128 lanes share identical
+per-lane logic and the broadcast buffer tree is itself a PnR fixup; the placed
+lane is therefore the *datapath* Fmax ceiling the array converges to.
 
-**Area (`synth/area_report.txt`).** The mapped design is **99,710 cells,
-1,065,403 um^2 (1.065 mm^2)**, 0 unmapped cells, 0 inferred latches. A standalone
-yosys cross-check reports 11,279 flip-flops, matching 128 lanes x (8b weight +
-16b product + 32b accumulator + 32b result) plus shared control tags. The
-**dominant area contributors are the 128 signed 8x8 multipliers and the 128
-32-bit accumulators** (xnor2/nor2/nand2/xor2/maj3 arithmetic cells), with
-sequential elements ~29% of area. Versus the M3 single lane (2,000 cells,
-23,130 um^2) this is ~46x -- sub-128x because the array drops the per-lane AXI
-command glue and the runtime tap-select mux and shares one control pipeline.
+**Area (`synth/area_report.txt`).** The placed lane is **2,498 stdcells,
+13,128.8 um^2** post-detailed-route, DRC clean and LVS clean. The 134
+sequential cells per lane match the 3-stage pipeline (8b weight + 16b product
++ 32b CSA sum + 32b CSA carry + 32b result + shared control). A naive
+128-lane extrapolation gives ~1.68 mm^2; the actual `accel_top` post-PnR area
+is slightly above this because of the per-lane weight register files, the
+banked broadcast tree, and the result-serializer FSM, all reported in
+`synth/area_report.txt` section A. The **dominant area contributors** are
+(1) the 128 signed 8x8 multipliers, (2) the 128 dual 32-bit CSA registers,
+(3) the per-lane weight banks, and (4) the clock-tree buffering. Versus the M3
+single lane (2,000 cells, 23,130 um^2) the per-lane area is *down* despite the
+new CSA register, because M3 included AXI command glue and a runtime tap-select
+mux that M4 drops.
 
-**Timing (`synth/timing_report.txt`).** The pre-PNR full-array STA reports a
-catastrophic -387 ns setup WNS, but this is **not a real Fmax**: the worst path
-is the broadcast `b_valid` net at **fanout 5,881** driving an unbuffered inverter
-(single-gate delay 333.7 ns) before any buffer insertion or clock-tree synthesis.
-The pipeline logic depth is short; the violation is pure interconnect fan-out. To
-get a meaningful number, a single placed pipelined lane (shared by all 128 lanes)
-was taken through placement + STA: it closes at **+1.05 ns / ~339 MHz (ff),
--0.94 ns / ~202 MHz (tt), and -5.42 ns / ~106 MHz (ss, sign-off)**. The design
-therefore **does not meet 250 MHz at the slow corner** -- it reaches ~106 MHz
-(ss) / ~202 MHz (tt), still a 1.75x slow-corner improvement over the M3
-unpipelined lane (60.6 MHz). The limiter is the **32-bit accumulate adder carry
-chain** (`acc + prod_ext`), the single dominant logic stage.
+**Timing (`synth/timing_report.txt`).** At the 4.0 ns (250 MHz) target, the
+placed lane closes at:
 
-**Power (`synth/power_report.txt`).** OpenROAD pre-PNR estimates (default
-switching activity) are **193.5 mW (ss), 255.4 mW (tt), 342.5 mW (ff)**. At tt
-the split is 131.1 mW sequential (51.3%) and 124.3 mW combinational (48.7%) --
-the per-lane accumulators and pipeline registers dominate sequential power. This
-is higher than the crude 133 mW linear projection precisely because the real
-array carries full 32-bit accumulators per lane. It is a pre-PNR / default
--activity figure (no clock tree), to be re-annotated from a workload VCD after
-routing.
+| Corner | Setup WNS | Achieved period | Achieved Fmax |
+|---|---|---|---|
+| nom_ff_n40C_1v95 | +0.995 ns | ~3.00 ns | **~333 MHz** (meets 250 MHz) |
+| nom_tt_025C_1v80 | -0.653 ns | ~4.65 ns | **~215 MHz** |
+| nom_ss_100C_1v60 | -4.833 ns | ~8.83 ns | **~113 MHz** (sign-off corner) |
+
+Hold WNS is +0.118 ns (ff) and +0.195 ns (tt); at ss there is one 5 ps hold
+violation on an in-reg input path (closable by an LVT buffer). No max-slew or
+max-cap violations. The 250 MHz target is **not met at the slow sign-off
+corner**; it is met at the fast corner. This is a 6-7% slow-corner improvement
+over the early-M4 ripple-carry lane (which closed at ~106 MHz ss). The
+**worst-setup path** is now `Stage-A weight register -> 8x8 signed multiplier
+-> Stage-B product register` -- the multiplier, not the adder. This confirms
+that the carry-save accumulator successfully removed the 32-bit adder carry
+chain from the inner-loop critical path; the multiplier is the new limiter
+(see Section 9).
+
+**Power (`synth/power_report.txt`).** Post-PnR per-lane power at default
+switching activity: **2.84 mW (ss), 3.59 mW (tt)** -- ~40% sequential, ~26%
+combinational, ~34% clock. A naive 128x extrapolation gives ~363 mW (ss),
+~460 mW (tt); the authoritative full-array number comes from the `accel_top`
+post-PnR power report. Post-PnR numbers include CTS power that the early
+pre-PnR / default-activity estimate (193/255/343 mW) did not, so the figures
+are not directly comparable.
 
 # 8. Benchmark results
 
-Using the measured 127.861 MAC/cycle and the post-synthesis frequencies, the
-full 2,704-pixel layer extrapolates as follows (`bench/benchmark_data.csv`,
+Using the measured 127.861 MAC/cycle and the post-PnR per-corner frequencies,
+the full 2,704-pixel layer extrapolates as follows (`bench/benchmark_data.csv`,
 `bench/benchmark.md`); the metric is GFLOP/s, identical to the M1 baseline:
 
 | Config | Freq | Layer time | Throughput | Speedup |
 |---|---|---|---|---|
 | M1 software baseline | -- | 160.9 ms | 2.48 GFLOP/s | 1.00x |
-| M4 accel, ss (sign-off) | 106 MHz | 14.69 ms | 27.2 GFLOP/s | **10.96x** |
-| M4 accel, tt (typical) | 202 MHz | 7.70 ms | 51.8 GFLOP/s | **20.89x** |
-| M4 accel, ff (fast) | 339 MHz | 4.60 ms | 86.7 GFLOP/s | 34.98x |
+| M4 accel, ss (sign-off) | 113 MHz | 13.77 ms | 28.95 GFLOP/s | **11.68x** |
+| M4 accel, tt (typical) | 215 MHz | 7.26 ms | 54.96 GFLOP/s | **22.18x** |
+| M4 accel, ff (fast) | 333 MHz | 4.69 ms | 85.09 GFLOP/s | 34.34x |
 
-The **measured speedup is 10.96x (guaranteed sign-off) to 20.89x (typical)** over
-the M1 baseline. Energy per layer (corner power x runtime) is 2.84 mJ (ss) /
-1.97 mJ (tt), i.e. **140-203 GFLOP/s/W**. Against an assumed 15 W M1 Pro CPU
-active power (~2,414 mJ/layer, 0.165 GFLOP/s/W) this is roughly **1,200x better
-energy efficiency** -- reported as an order-of-magnitude estimate, gated on the
-15 W assumption and the pre-PNR power figure, per the checklist's "optional but
-valued" energy item.
+The **measured speedup is 11.68x (guaranteed sign-off) to 22.18x (typical)**
+over the M1 baseline. Energy per layer (corner power x runtime) is 5.00 mJ
+(ss) / 3.34 mJ (tt), i.e. **80-120 GFLOP/s/W**. Against an assumed 15 W
+M1 Pro CPU active power (~2,414 mJ/layer, 0.165 GFLOP/s/W) this is roughly
+**720x better energy efficiency** -- reported as an order-of-magnitude
+estimate, gated on the 15 W assumption and the default-activity power figure,
+per the checklist's "optional but valued" energy item.
 
-**Gap between measured and theoretical.** The M1 design target was 64 GFLOP/s at
-250 MHz. Compute *utilization* is essentially ideal (99.89% of 128 MAC/cycle), so
-the gap is **entirely clock frequency**: the placed datapath closes at 106 MHz
-(ss) / 202 MHz (tt) rather than 250 MHz because the 32-bit ripple-carry
-accumulate adder is the critical path. Measured tt throughput (51.8 GFLOP/s) is
-0.81x of target; ss (27.2) is 0.42x. Figure 1 plots the measured tt and ss points
--- the real measured values, not the M1 hypothetical 64 GFLOP/s point. The
-roofline confirms the design is frequency-bound, not bandwidth-bound, so the
-remedy is faster timing closure (Section 9), not more bandwidth.
+**Gap between measured and theoretical.** The M1 design target was 64 GFLOP/s
+at 250 MHz. Compute *utilization* is essentially ideal (99.89% of 128
+MAC/cycle), so the gap is **entirely clock frequency**: the placed datapath
+closes at 113 MHz (ss) / 215 MHz (tt) rather than 250 MHz because the 8x8
+multiplier is now the critical path. Measured tt throughput (55.0 GFLOP/s) is
+0.86x of the 64 GFLOP/s target; ss (29.0) is 0.45x. Figure 1 plots the
+measured tt and ss points -- the real measured values, not the M1
+hypothetical 64 GFLOP/s point. The roofline confirms the design is
+frequency-bound, not bandwidth-bound, so the remedy is faster timing closure
+(Section 9), not more bandwidth.
 
 # 9. What did not work
 
 This design had real setbacks; the following are specific.
 
-**(1) The full 128-lane array could not be placed-and-routed as a standalone
-block.** Synthesizing `mac_array` with every weight and result as a top-level pin
-exposed **5,134 chip pins**; floorplanning failed first with global-placement
-overflow at a tight die, then with PPL-0024 (IO pins exceed die-perimeter routing
-tracks). What I learned: a compute array is not a chip -- in a real accelerator
-those operands come from on-chip SRAM and accumulator buffers, not pads. What I
-would do differently: wrap the array with on-chip weight SRAM and an output
-buffer so the synthesized block has a realistic pin count, then PnR the wrapped
-block. As a result, the reported area/power are from the full array's pre-PNR
-synthesis, and Fmax is from a placed single lane (the per-lane logic the 128
-lanes share), which is documented rather than hidden.
+**(1) The 250 MHz / 64 GFLOP/s target was missed at the slow corner.** The
+placed datapath closes at ~113 MHz (ss) and ~215 MHz (tt), not the 250 MHz the
+M1 roofline assumed. Early in M4 the limiter was the 32-bit ripple-carry
+accumulator; that motivated the **carry-save accumulator** now in
+`mac_array.sv` (sum/carry held in redundant form across the reduction; a
+single full add only on `last`). After CSA, the worst setup path moved to the
+**8x8 signed multiplier** (Stage A weight -> Stage B product register,
+~25 logic levels in sky130 standard cells), which the multiplier is now
+~comparable in depth to the adder it replaced -- the CSA bought only ~6% at
+ss. What I would do differently to close to 250 MHz: pipeline the multiplier
+into two registered Booth partial-product stages (turns the 3-stage MAC into
+a 4-stage MAC; adds one cycle of latency, no change in steady-state
+throughput). I did not do this because of M4's time budget; the architectural
+hook is in place (the shared control pipeline already carries `valid/first
+/last` tags across an arbitrary number of stages).
 
-**(2) Pre-PNR timing was meaningless due to broadcast fan-out.** My first STA
-reported -387 ns WNS. I initially read this as a logic-depth failure; it was
-actually a single unbuffered broadcast net (`b_valid`) at fanout 5,881 with
-~81 ns slew -- an interconnect artifact that CTS/buffer insertion fixes. The
-lesson: pre-PNR STA on high-fanout broadcast control is not a Fmax, and a
-post-placement STA is required. What I would do differently: add a registered
-fan-out tree that re-broadcasts activation/valid/first/last into banks of ~16
-lanes so no net drives more than ~17 sinks (`project/remaining_tasks.md` task 2).
+**(2) The bare `mac_array` could not be place-and-routed as a top-level
+block; a wrapper was required.** Synthesizing `mac_array` with every weight
+and result as a chip pin exposed **5,134 pins**, which OpenLane's PPL-0024
+check rejects (the perimeter cannot fit that many tracks). The fix was the
+production wrapper `accel_top`, which moves weights into 128 per-lane
+on-chip banks, serializes the 4,096-bit result into one channel per
+64-bit beat, and exposes a single narrow AXI4-Stream port. Top-level pin
+count drops from 5,134 to **137**. What I learned: a compute array is not a
+chip -- in a real accelerator the wide operands come from on-chip SRAM and
+result buffers, not pads. What is still imperfect: the per-lane weight banks
+are inferred as register files. For the sky130 educational PnR I scaled
+`L_MAX` from 576 to 64 to keep the inferred FF count tractable; the
+architecture is `L_MAX`-parametric and a real ASIC would back the 576-deep
+bank with sky130 SRAM macros via the OpenLane macro flow.
 
-**(3) The 250 MHz / 64 GFLOP/s target was optimistic.** The placed datapath
-closes at only ~106 MHz (ss). The cause is concrete: the worst path starts at the
-Stage-B product register and runs through the **32-bit accumulate adder carry
-chain**. What I would do differently, and the highest-value next step, is to
-replace the ripple-carry accumulator with a **carry-save accumulator** -- keep
-the running sum in redundant (sum, carry) form across the reduction and do a
-single carry-propagate add only on `last` -- removing the per-cycle 32-bit carry
-propagation from the inner loop (`remaining_tasks.md` task 1).
+**(3) Pre-PnR full-array STA was useless; broadcast nets had to be banked.**
+The first pre-PnR STA on the bare array reported -387 ns WNS -- not a logic
+failure, but a single unbuffered broadcast net (`b_valid`) at fanout 5,881
+with ~81 ns slew. CTS/buffer insertion fixes most of this, but the broadcast
+must be architecturally banked to stop being a routing problem. The fix in
+`accel_top` is a **1-deep registered fan-out tree**: `activation`, `valid`,
+`first`, and `last` are re-registered into 8 banks of 16 lanes each, so no
+single net drives more than ~16 sinks. This adds one cycle of latency and
+the `tb_accel_top` testbench accounts for it; throughput in the compute
+phase is unaffected (128.000 MAC/cycle). What I would still do: the result
+serializer is a simple round-robin drainer; for a per-pixel rate-limited
+host, a small backpressure-aware FIFO between the array and the serializer
+would help overlap the next pixel's compute with the previous pixel's drain.
 
-**(4) Power was higher than the linear projection (~2x).** The CF09 estimate
-scaled the single lane by 128 to ~133 mW; the real array is ~255 mW (tt) because
-full 32-bit accumulators and pipeline registers per lane add ~131 mW of
-sequential power that the linear model ignored. The lesson: per-lane state, not
-just multipliers, drives array power; and the current number is pre-PNR with
-default activity, so it must be re-estimated from a workload VCD after CTS
-(`remaining_tasks.md` task 3) before any final energy claim is made.
+**(4) Power is post-PnR but not workload-annotated.** The reported numbers
+are at OpenLane default switching activity (alpha 0.5 on inputs). For a
+final energy claim, the `tb_accel_top` workload should be replayed against
+the routed netlist with VCD/SAIF annotation; this was on the M4 punch-list
+and is the cleanest single remaining improvement to the energy column of
+Section 8.
 
 What did work, and is fully confirmed by measurement: the output-stationary,
-weight-streaming dataflow sustains 127.861 of 128 MAC/cycle with zero functional
-errors, eliminating the M3 restart bubble. The open risk is timing closure, not
-parallelism or correctness.
+weight-streaming dataflow sustains 127.861 of 128 MAC/cycle with zero
+functional errors; the production `accel_top` wrapper routes cleanly to
+DRC/LVS sign-off at 137 pins; and the carry-save accumulator successfully
+removed the 32-bit adder from the inner-loop critical path. The remaining
+risk is timing closure (the multiplier), not parallelism, correctness, or
+routability.
 
 ---
 

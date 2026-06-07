@@ -2,3 +2,5 @@
 tools/opensta-build/
 *.vvp
 .DS_Store
+project/m4/synth/runs/
+project/m4/synth/openlane_accel.log

@@ -1,0 +1,22 @@
+{
+  "DESIGN_NAME": "accel_top",
+  "VERILOG_FILES": [
+    "dir::../rtl/mac_array.sv",
+    "dir::../rtl/accel_top.sv"
+  ],
+  "VERILOG_DEFINES": [],
+  "VERILOG_POWER_DEFINE": "USE_POWER_PINS",
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 6.0,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 3300 3300",
+  "PL_TARGET_DENSITY_PCT": 55,
+  "SYNTH_PARAMETERS": [
+    "L_MAX=64"
+  ],
+  "RUN_HEURISTIC_DIODE_INSERTION": true,
+  "GRT_REPAIR_ANTENNAS": true,
+  "pdk::sky130*": {
+    "STD_CELL_LIBRARY": "sky130_fd_sc_hd"
+  }
+}

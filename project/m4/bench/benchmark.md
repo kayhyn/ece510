@@ -36,14 +36,20 @@ same-padding INT8 convolution, input 52x52x64, output 52x52x128.
 
    The 0.11% shortfall is pipeline fill/drain over the finite 8-pixel stream
    (interface 1-cycle register + 3-stage core); for the full 2,704-pixel layer
-   it is negligible. Sustained compute = 127.861 MAC/cycle.
+   it is negligible. The production wrapper `accel_top` (with narrow
+   AXI4-Stream + weight memory + result serializer) is independently verified
+   by `tb_accel_top.sv` (see `sim/final_accel_run.log`) at **128.000 MAC/cycle
+   during the compute phase**, with 1,024-beat result drain overhead amortized
+   across pixels.
 
-2. **Clock frequency (post-synthesis STA).** Frequency is taken from the
-   OpenLane 2 placed single-lane STA (`synth/timing_report.txt`, section B); the
-   128 lanes share identical per-lane logic so this is the datapath ceiling:
-   sign-off slow corner **106 MHz (ss)**, typical **202 MHz (tt)**, fast
-   **339 MHz (ff)**. The M1 design target of 250 MHz is **not met at the
-   sign-off corner** (the 32-bit accumulate adder carry chain is the limiter).
+2. **Clock frequency (post-PnR STA).** Frequency is taken from the OpenLane 2
+   placed-and-routed single-lane STA *with the carry-save accumulator*
+   (`synth/timing_report.txt` section B, run tag `M4_CSA_LANE`); the 128 lanes
+   share identical per-lane logic so this is the datapath ceiling: sign-off
+   slow corner **113 MHz (ss)**, typical **215 MHz (tt)**, fast **333 MHz
+   (ff)**. The M1 design target of 250 MHz is **not met at the sign-off
+   corner** (the 8x8 multiplier is now the limiter after CSA removed the
+   adder from the inner-loop critical path).
 
 3. **Layer time** = (layer MACs / sustained MAC-per-cycle) / frequency.
    **Throughput** = layer FLOPs / layer time. **Energy** = corner power
@@ -57,39 +63,43 @@ M1 software baseline: median **160.9 ms/layer** -> **2.48 GFLOP/s**
 | Configuration | Freq | Layer time | Throughput | **Speedup vs M1** |
 |---|---|---|---|---|
 | M1 software baseline | - | 160.9 ms | 2.48 GFLOP/s | 1.00x |
-| M4 accel, ss (sign-off) | 106 MHz | 14.69 ms | 27.2 GFLOP/s | **10.96x** |
-| M4 accel, tt (typical) | 202 MHz | 7.70 ms | 51.8 GFLOP/s | **20.89x** |
-| M4 accel, ff (fast) | 339 MHz | 4.60 ms | 86.7 GFLOP/s | 34.98x |
-| M4 accel, 250 MHz target | 250 MHz | 6.24 ms | 63.9 GFLOP/s | 25.80x |
+| M4 accel, ss (sign-off) | 113 MHz | 13.77 ms | 28.95 GFLOP/s | **11.68x** |
+| M4 accel, tt (typical) | 215 MHz | 7.26 ms | 54.96 GFLOP/s | **22.18x** |
+| M4 accel, ff (fast) | 333 MHz | 4.69 ms | 85.09 GFLOP/s | 34.34x |
+| M4 accel, 250 MHz target | 250 MHz | 6.24 ms | 63.93 GFLOP/s | 25.80x |
 
-**Headline measured result: 10.96x (guaranteed sign-off, ss) to 20.89x (typical,
+**Headline measured result: 11.68x (guaranteed sign-off, ss) to 22.18x (typical,
 tt) speedup over the M1 NumPy baseline**, for the same INT8 kernel and the same
 FLOP/s metric. The 250 MHz / 64 GFLOP/s row is the M1 *design target*, included
 for reference only; it is not met at sign-off and is **not** the measured point
-plotted on the roofline. The roofline's M4 markers are the measured tt (51.8)
-and ss (27.2) GFLOP/s values.
+plotted on the roofline. The roofline's M4 markers are the measured tt (55.0)
+and ss (29.0) GFLOP/s values.
 
 ## Energy comparison (estimated)
 
-Accelerator energy = synthesis power x measured layer runtime:
+Accelerator energy = post-PnR per-corner power x measured layer runtime. Power
+is taken as **per-lane post-PnR power x 128 lanes** (the per-lane number is
+from the placed-and-routed M4_CSA_LANE run; see `synth/power_report.txt`).
+This is a more accurate scaling than the previous pre-PnR / default-activity
+full-array estimate because it includes CTS and timing-repair-buffer power.
 
-| Configuration | Power | Energy/layer | Energy efficiency |
+| Configuration | Power (array est.) | Energy/layer | Energy efficiency |
 |---|---|---|---|
-| M4 accel, ss | 193 mW | 2.84 mJ | 140 GFLOP/s/W |
-| M4 accel, tt | 255 mW | 1.97 mJ | 203 GFLOP/s/W |
+| M4 accel, ss | 363 mW | 5.00 mJ | 79.7 GFLOP/s/W |
+| M4 accel, tt | 460 mW | 3.34 mJ | 119.5 GFLOP/s/W |
 
 For the software baseline, no wall-plug measurement was taken, so an **assumed**
 Apple M1 Pro CPU active power of **15 W** is used (conservative for a
 multi-core-backed NumPy/Accelerate path; the package can draw more). At 160.9 ms
 that is ~2,414 mJ/layer and an efficiency of **0.165 GFLOP/s/W**.
 
-- Energy/layer ratio (tt): 2,414 mJ / 1.97 mJ ~= **1,200x lower energy**.
-- Efficiency ratio (tt): 203 / 0.165 ~= **1,200x better GFLOP/s/W**.
+- Energy/layer ratio (tt): 2,414 mJ / 3.34 mJ ~= **720x lower energy**.
+- Efficiency ratio (tt): 119.5 / 0.165 ~= **720x better GFLOP/s/W**.
 
 This is an order-of-magnitude estimate, explicitly gated on the 15 W assumption
-and on a pre-PNR / default-activity power figure (see *Caveats*); it is reported
-as "valued but optional" per the M4 checklist, not as a measured wall-plug
-number.
+and on a default-activity (not VCD-annotated) per-lane power figure (see
+*Caveats*); it is reported as "valued but optional" per the M4 checklist, not as
+a measured wall-plug number.
 
 ## Gap between measured and theoretical
 
@@ -98,11 +108,15 @@ number.
   tags removes the M3 single-lane restart bubble (M3 sustained only ~0.9
   MAC/cycle). So the throughput gap is **not** in utilization.
 - **The gap is clock frequency.** The M1 projection assumed 250 MHz (64
-  GFLOP/s). The placed datapath closes at only 106 MHz (ss) / 202 MHz (tt)
-  because the 32-bit ripple-carry accumulate adder is the critical path. This is
-  why measured tt throughput (51.8 GFLOP/s) is ~0.81x of the 64 GFLOP/s target,
-  and ss (27.2) is ~0.42x. The fix (carry-save accumulator) is documented in
-  `project/remaining_tasks.md` and the report's *What did not work* section.
+  GFLOP/s). The placed datapath closes at only 113 MHz (ss) / 215 MHz (tt)
+  even after the carry-save accumulator removed the 32-bit ripple-carry adder
+  from the inner-loop critical path. The new critical path is the 8x8 signed
+  multiplier (Stage A weight -> Stage B product flop, ~25 logic levels at
+  sky130). This is why measured tt throughput (55.0 GFLOP/s) is ~0.86x of the
+  64 GFLOP/s target, and ss (29.0) is ~0.45x. Closing the remaining gap to
+  250 MHz would require pipelining the multiplier (e.g., a registered Booth
+  partial-product stage), documented in the report's *What did not work*
+  section.
 - **Not interface-bound.** Required operand bandwidth at tt throughput is
   ~0.10 GB/s; the on-chip streaming path provides ~32 GB/s and the AXI4-Stream
   link ~0.4 GB/s, both far above demand (AI 672 >> ridge ~2). The roofline shows
@@ -111,13 +125,17 @@ number.
 
 ## Caveats
 
-- Power is OpenLane **pre-PNR with default switching activity** and no
-  clock-tree; it is an early upper-ish estimate, to be re-annotated from a
-  workload VCD after place-and-route (`remaining_tasks.md` task 3).
-- Frequency is from the **placed single lane**; the full 128-lane array's clock
-  is additionally bounded by the broadcast-net buffer tree (timing_report.txt
-  section A), so the full-array clock may be at or below the per-lane ceiling
-  until the broadcast fan-out is pipelined/banked.
+- Power is OpenLane **post-PnR with default switching activity** scaled from one
+  placed lane to 128 lanes; it is an early upper-ish estimate. To make a final
+  energy claim, the full `accel_top` should be re-power-estimated with a SAIF
+  or VCD annotation from the `tb_accel_top` workload.
+- Frequency is from the **placed-and-routed single lane**; the full 128-lane
+  `accel_top` clock is additionally bounded by the banked broadcast buffer tree
+  (`timing_report.txt` section A), so the full-array clock may be slightly
+  below the per-lane ceiling.
+- The deliverable `accel_top` PnR uses `L_MAX=64` to keep the inferred weight
+  register file tractable; the architecture is `L_MAX`-parametric and a real
+  ASIC would back the 576-deep weight bank with sky130 SRAM macros.
 
 ## Traceability
 
@@ -125,7 +143,8 @@ number.
 |---|---|
 | 160.9 ms, 2.48 GFLOP/s baseline | `project/m1/sw_baseline.md` |
 | 127.861 MAC/cycle, 4613 cycles, 0 errors | `project/m4/sim/final_run.log` |
-| 106 / 202 / 339 MHz per corner | `project/m4/synth/timing_report.txt` |
-| 193 / 255 / 343 mW per corner | `project/m4/synth/power_report.txt` |
+| 128.000 MAC/cycle (compute), accel_top end-to-end | `project/m4/sim/final_accel_run.log` |
+| 113 / 215 / 333 MHz per corner (CSA lane PnR) | `project/m4/synth/timing_report.txt` |
+| Per-lane 2.84 mW (ss) / 3.59 mW (tt) post-PnR | `project/m4/synth/power_report.txt` |
 | all derived throughput/speedup/energy rows | `project/m4/bench/benchmark_data.csv` |
 | roofline point coordinates | `project/m4/tools/benchmark.py` -> `roofline_final.png` |

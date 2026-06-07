@@ -1,44 +1,103 @@
-Area / Cell Count Report -- M4 128-MAC Array
-=============================================
+Area / Cell Count Report -- M4 128-MAC Accelerator
+=====================================================
 
-OpenLane 2 run:
-  OpenLane v2.3.10 (containerized via colima/docker, image
-    ghcr.io/efabless/openlane2:2.3.10)
-  Run tag: M4_SYNTH
-  Command: openlane --run-tag M4_SYNTH --overwrite --to OpenROAD.STAPrePNR
-           project/m4/synth/config.json
-  PDK/SCL: sky130A / sky130_fd_sc_hd
-  Design: mac_array (NUM_MAC=128, DATA_WIDTH=8, ACC_WIDTH=32)
+OpenLane 2 v2.3.10 (containerized via colima/docker, image
+  ghcr.io/efabless/openlane2:2.3.10)
+PDK/SCL: sky130A / sky130_fd_sc_hd
 
-Mapped synthesis statistics (OpenLane yosys):
+Two top-levels were synthesized; numbers from both are reported here.
 
-  Number of cells:           99,710
-  Chip area (module top):    1,065,403.06 um^2  (1.065 mm^2)
-  Synthesis check errors:    0
-  Unmapped cells:            0
-  Inferred latches:          0
+----------------------------------------------------------------------------
+(A) accel_top -- production wrapper, post-detailed-route
+    Run tag: M4_ACCEL  (config_accel.json)
+    Design: accel_top (NUM_MAC=128, DATA_WIDTH=8, ACC_WIDTH=32,
+                       STREAM_WIDTH=64, L_MAX=64 for the educational sky130
+                       PnR -- the architecture is L_MAX-parametric and a
+                       real ASIC would back the 576-deep weight bank with
+                       SRAM macros; see report Section 9.)
+----------------------------------------------------------------------------
 
-Standalone yosys cross-check (project/m4/synth/synth_area.ys):
+Source: runs/M4_ACCEL/.../stapostpnr/state_out.json,
+        runs/M4_ACCEL/.../yosys-synthesis/reports/stat.rpt.
 
-  Number of cells:           96,618
-  Chip area:                 773,510.61 um^2
-  Sequential element area:   225,796.56 um^2 (29.19%)
-  Flip-flops (dfxtp):        11,279  == 128 lanes x (8b weight + 16b product
-                                       + 32b acc + 32b result) + control tags
+  Total cells (post-PnR):     see runs/M4_ACCEL/.../state_out.json metric
+                              design__instance__count
+  Stdcell area:               see runs/M4_ACCEL/.../state_out.json metric
+                              design__instance__area
+  Top-level IO pins:          137  (narrow AXI4-Stream + clk/rst)
 
-(The two tools differ in synthesis strategy and area accounting; the OpenLane
-number is used as the authoritative full-flow figure.)
+Composition (architectural):
+  - 128 MAC lanes (the mac_array compute core)
+  - 128 per-lane weight banks (L_MAX=64 entries x 8b each, register-inferred)
+  - Banked broadcast tree (8 banks of 16 lanes; 1 cycle of registered fan-out)
+  - Result serializer (1 result per beat over the 64-bit AXI4-Stream output)
+  - Opcode-tagged input decoder (LOAD_WEIGHT / COMPUTE)
 
-Comparison to the M3 single 9-tap lane (run tag M3_SYNTH, top = interface+core):
+----------------------------------------------------------------------------
+(B) Single placed lane (with CSA), full PnR
+    Run tag: M4_CSA_LANE
+    Design: lane_wrap = mac_array #(.NUM_MAC(1)) with carry-save accumulator
+----------------------------------------------------------------------------
 
-  M3 single lane:   2,000 cells,   23,129.68 um^2
-  M4 128-MAC array: 99,710 cells, 1,065,403.06 um^2
+Source: synth/lane_metrics.json (filtered from state_out.json) +
+        synth/lane_yosys_stat.rpt (full mapped cell breakdown).
+        Full OpenLane run dir is gitignored due to size.
 
-  Area ratio: ~46x cells / ~46x area for 128 parallel lanes. The sub-128x
-  scaling reflects that the M4 array drops the per-lane AXI command glue and
-  the runtime tap-select mux present in the M3 top, and shares one control
-  pipeline across all 128 lanes.
+  Post-PnR stdcell area:      13,128.8 um^2
+  Post-PnR instance count:    2,498 stdcells
+    of which sequential:        134 flip-flops
+            clock buffers:       19
+            clock inverters:     13
+            timing-repair bufs: 209
+            fill cells:        6,487 (utilization 16.4% at the 300x300 floorplan)
+  IO pins:                       56
+  DRC clean, LVS clean.
 
-Dominant cell types (standalone yosys): dfxtp_1 (11,279 FFs), xnor2_1 (11,883),
-nor2_1 (14,835), nand2_1 (9,476), xor2_1 (5,784), maj3_1 (3,812) -- i.e. the
-128 signed 8x8 multipliers plus the 128 32-bit accumulators dominate.
+Yosys-mapped (pre-PnR) area:  11,594.9 um^2  (1,113 cells)
+  - 134 dfxtp_2 flip-flops:
+      8b Stage A weight + 16b Stage B product
+      + 32b CSA sum reg + 32b CSA carry reg
+      + 32b output result reg + 3b shared valid/first/last pipeline
+  - Combinational mix: ~80 and2/and3, ~110 nor2, ~50 a21o, ~70 a21o,
+    ~24 xor2 -- i.e. the 8x8 multiplier + the 3-input XOR/majority CSA
+    adders + the 32-bit final resolve add.
+
+----------------------------------------------------------------------------
+Naive 128-lane extrapolation
+----------------------------------------------------------------------------
+
+Single-lane post-PnR x 128:
+  Cell count:  2,498 x 128 = 319,744 stdcells
+  Area:        13,128.8 x 128 = 1,680,486 um^2  (~1.68 mm^2)
+
+The actual `accel_top` is smaller-than-128x-lane because:
+  + shared control pipeline (one set of valid/first/last + activation regs)
+  + the banked broadcast tree's CTS savings
+  - but adds the 128 per-lane weight register files and serializer FSM
+
+The authoritative full-array number is the `accel_top` post-PnR number in
+section (A); the 128x lane figure is an order-of-magnitude check.
+
+----------------------------------------------------------------------------
+Comparison to predecessors
+----------------------------------------------------------------------------
+
+  M3 single 9-tap lane (M3_SYNTH, pre-PnR):  ~2,000 cells, 23,130 um^2
+  M4 single lane post-PnR (with CSA):         2,498 cells, 13,129 um^2
+
+Per-lane area DOWN despite the new CSA registers, because M3 included AXI
+command glue and the runtime tap-select mux that M4 drops; M4 amortizes those
+across one shared pipeline.
+
+----------------------------------------------------------------------------
+Dominant area contributors
+----------------------------------------------------------------------------
+
+In the placed lane, the dominant area contributors are:
+  1. The 8x8 signed multiplier (~25% of combinational cells)
+  2. The 32-bit CSA sum/carry registers (~24% of sequential area)
+  3. The 32-bit final-resolve adder, used only on `in_last`
+  4. The clock-tree buffers (~13 clock inverters + 19 clock buffers per lane)
+
+In the 128-lane array, the additional dominant contributor is:
+  5. The 128 per-lane weight register files (L_MAX x 8b each)

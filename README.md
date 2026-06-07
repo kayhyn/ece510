@@ -18,7 +18,7 @@ The complete M4 deliverable package lives in **[`project/m4/`](project/m4/)**:
   -- the 9-section design justification report (the basis for the final exam).
 
 Measured headline result: the 128-MAC array sustains **127.861 of 128 MAC/cycle
-(99.89%)** with **0 functional errors**, for a **10.96x (sign-off) to 20.89x
+(99.89%)** with **0 functional errors**, for a **11.68x (sign-off) to 22.18x
 (typical)** speedup over the 160.9 ms/layer M1 NumPy baseline. RTL, testbench,
 simulation log + waveform, OpenLane synthesis reports (timing/area/power), the
 benchmark + measured roofline, and raw data are all under `project/m4/`.

@@ -44,13 +44,15 @@ SUSTAINED_MAC_PER_CYC = SIM_MACS / SIM_CYCLES   # 127.861
 # Full-layer cycle count at the measured sustained rate.
 LAYER_CYCLES = LAYER_MACS / SUSTAINED_MAC_PER_CYC
 
-# ---- Post-synthesis frequencies (placed single lane, timing_report.txt) ---
-# corner: (freq_Hz, power_W from power_report.txt for that corner)
+# ---- Post-synthesis frequencies (placed-and-routed single lane with the
+# carry-save accumulator, timing_report.txt section B; run tag M4_CSA_LANE) ---
+# Per-lane post-PnR power scaled by 128 lanes (see power_report.txt section B).
+# corner: (freq_Hz, power_W per array)
 CORNERS = {
-    "ss_signoff_106MHz": (106.16e6, 0.19345),
-    "tt_typical_202MHz": (202.43e6, 0.25537),
-    "ff_fast_339MHz":    (338.98e6, 0.34253),
-    "target_250MHz":     (250.00e6, 0.25537),  # M1 design target (not met at signoff)
+    "ss_signoff_113MHz": (113.21e6, 0.36308),   # 4.0 + 4.833 ns -> 8.833 ns / lane 2.836 mW * 128
+    "tt_typical_215MHz": (214.92e6, 0.45984),   # 4.0 + 0.653 ns -> 4.653 ns / lane 3.592 mW * 128
+    "ff_fast_333MHz":    (332.74e6, 0.45984),   # 4.0 - 0.995 ns -> 3.005 ns (re-use tt power as upper bound)
+    "target_250MHz":     (250.00e6, 0.45984),   # M1 design target (not met at signoff)
 }
 
 # ---- On-chip / interface bandwidths for the roofline ----------------------
@@ -98,7 +100,7 @@ def main():
     ai = np.logspace(-1, 3.2, 400)
 
     # Accelerator roofline (measured tt ceiling + target ceiling).
-    acc_peak_tt = SUSTAINED_MAC_PER_CYC * 2 * 202.43e6 / 1e9   # measured tt
+    acc_peak_tt = SUSTAINED_MAC_PER_CYC * 2 * 214.92e6 / 1e9   # measured tt
     acc_peak_target = CHANNELS * 2 * 250e6 / 1e9               # 64 GFLOP/s target
     acc_roof_tt = np.minimum(ACC_BW_GBs * ai, acc_peak_tt)
     ax.plot(ai, acc_roof_tt, color="#1f6fb2", lw=2.2,
@@ -119,8 +121,8 @@ def main():
     # Points.
     ax.plot([KERNEL_AI], [M1_GFLOPS], "s", color="#c0392b", ms=11, zorder=5,
             label=f"M1 software baseline ({M1_GFLOPS:.2f} GFLOP/s)")
-    acc_meas_tt = SUSTAINED_MAC_PER_CYC * 2 * 202.43e6 / 1e9
-    acc_meas_ss = SUSTAINED_MAC_PER_CYC * 2 * 106.16e6 / 1e9
+    acc_meas_tt = SUSTAINED_MAC_PER_CYC * 2 * 214.92e6 / 1e9
+    acc_meas_ss = SUSTAINED_MAC_PER_CYC * 2 * 113.21e6 / 1e9
     ax.plot([KERNEL_AI], [acc_meas_tt], "o", color="#1f6fb2", ms=12, zorder=6,
             label=f"M4 accelerator MEASURED (tt {acc_meas_tt:.1f} GFLOP/s)")
     ax.plot([KERNEL_AI], [acc_meas_ss], "v", color="#16a085", ms=10, zorder=6,
