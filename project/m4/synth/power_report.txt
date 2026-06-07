@@ -12,24 +12,48 @@ Two power estimates are reported, one per top-level taken through OpenLane:
     carry-save accumulator), scaled to a 128-lane array estimate
 
 ----------------------------------------------------------------------------
-(A) accel_top -- post-PnR per-corner power, default switching activity
-    Run tag M4_ACCEL  (config_accel.json)
+(A) accel_top -- post-CTS / post-global-route power, default switching
+    Run tag M4_ACCEL2  (config_accel.json with GPL_CELL_PADDING=2,
+                        GRT_REPAIR_ANTENNAS=false)
 ----------------------------------------------------------------------------
 
-Source: runs/M4_ACCEL/.../stapostpnr/<corner>/power.rpt
+Status: detailed routing did not complete (16 GB host memory limit on
+TritonRoute track assignment); see report Section 9 item 5. Numbers below
+are post-CTS / post-resize-post-CTS, the deepest clean snapshot.
+
+Source: synth/accel_postcts_power.rpt
+        (= runs/M4_ACCEL2/37-openroad-stamidpnr-2/power.rpt).
 
   Corner             Internal       Switching      Leakage        Total
-  nom_tt_025C_1v80   see runs/M4_ACCEL/.../stapostpnr/nom_tt_025C_1v80/power.rpt
-  nom_ss_100C_1v60   see runs/M4_ACCEL/.../stapostpnr/nom_ss_100C_1v60/power.rpt
-  nom_ff_n40C_1v95   see runs/M4_ACCEL/.../stapostpnr/nom_ff_n40C_1v95/power.rpt
+  nom_tt_025C_1v80   801.5 mW       216.3 mW       2.3 uW         1.018 W
 
-These numbers come from the full `accel_top` PnR (including weight memory,
-banked broadcast tree, the 128-lane mac_array, and the result serializer) so
-they include clock-tree power on the (banked) broadcast nets and the buffer
-chains inserted by timing-repair. Note the `accel_top` PnR uses `L_MAX=64`
-(parametric override) so the weight register file is tractable for the
-educational sky130 inference flow; a real ASIC would back the 576-deep bank
-with SRAM macros, which would lower the weight-storage power.
+Group split (tt):
+  Sequential:    563.1 mW  (55.3%)
+  Combinational:  20.0 mW  ( 2.0%)
+  Clock:         434.6 mW  (42.7%)
+
+Internal / switching split (tt): 78.7% internal, 21.3% switching.
+
+Caveats:
+* Pre-detailed-route: wire RC and post-DR buffer-chain power are not yet
+  annotated. The figure is more representative of the active-cell power
+  (cells + CTS) than the total chip power, which would include wire
+  switching.
+* Default switching activity (alpha=0.5 on every input) is workload-
+  pessimistic for streaming 3x3 conv: the activation broadcast nets toggle
+  on every pixel but the weight banks are static for the whole stripe, so
+  the real combinational activity is lower than alpha=0.5 implies.
+* The qualitative split (clock + sequential dominate, combinational
+  negligible) is consistent with the per-lane breakdown in section (B),
+  where clock + sequential are 75% of total per-lane power.
+* `accel_top` PnR uses `L_MAX=64` (parametric override) so the weight
+  register file is tractable for the educational sky130 inference flow; a
+  real ASIC would back the 576-deep bank with SRAM macros, which would
+  lower the weight-storage power.
+
+For a final energy claim, re-run with SAIF or VCD annotated from the
+`tb_accel_top` workload (128 active lanes streaming 8 pixels of L=576), and
+ideally on a host where detailed routing closes.
 
 ----------------------------------------------------------------------------
 (B) Single placed lane, post-PnR (with CSA), default activity

@@ -4,3 +4,4 @@ tools/opensta-build/
 .DS_Store
 project/m4/synth/runs/
 project/m4/synth/openlane_accel.log
+project/m4/synth/openlane_accel2.log

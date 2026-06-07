@@ -16,10 +16,13 @@ benchmarked against the M1 software baseline.
 ~3,500 words). The measured headline: the array sustains **127.861 of 128
 MAC/cycle (99.89%)** with **0 functional errors**, giving an **11.68x
 (sign-off, 113 MHz) to 22.18x (typical, 215 MHz)** speedup over the 160.9 ms
-M1 baseline. Both top-levels route cleanly through OpenLane 2 sky130 HD:
-the single placed lane is DRC/LVS clean post-detailed-route, and `accel_top`
-takes the full 128-lane array + weight memory + serializer through the same
-flow at a realistic pin count.
+M1 baseline. The placed single lane is **DRC/LVS clean post-detailed-route**
+on OpenLane 2 sky130 HD (`M4_CSA_LANE`) -- this is the load-bearing PnR
+sign-off. The production `accel_top` wrapper elaborates through yosys and
+completes through global routing with **zero overflow on every metal
+layer**; detailed routing exceeded this host's 16 GB memory budget (see
+report Section 9 item 5), so the deepest clean `accel_top` snapshot is
+post-CTS / post-global-route (`M4_ACCEL2`, `synth/accel_postcts_*`).
 
 ## Diff from M3 (what changed)
 
@@ -202,8 +205,14 @@ docker run --rm \
   /work/project/m4/synth/config_lane.json
 ```
 
-Expected: `Flow complete.` on both runs; placed lane DRC/LVS clean at
-13,129 um^2 / 2,498 stdcells; per-corner post-PnR Fmax 113 MHz (ss) /
-215 MHz (tt) / 333 MHz (ff). See `synth/timing_report.txt` for the full
-timing story (the 32-bit adder is no longer the limiter after CSA; the
-multiplier is the new critical path).
+Expected: `Flow complete.` on the lane run (`M4_CSA_LANE`), with the placed
+lane DRC/LVS clean at 13,129 um^2 / 2,498 stdcells and per-corner post-PnR
+Fmax 113 MHz (ss) / 215 MHz (tt) / 333 MHz (ff). The accel_top run on a
+16 GB host reaches post-CTS / post-global-route (zero overflow on every
+metal layer) but does not complete detailed routing -- TritonRoute's track
+assignment exceeds the host memory budget; see report Section 9 item 5.
+The committed `synth/accel_postcts_*` files are the deepest clean accel_top
+snapshot (558,792 cells, 5.01 mm^2 stdcell area, WNS -2.73 ns at tt for the
+6.0 ns target). See `synth/timing_report.txt` for the full timing story
+(the 32-bit adder is no longer the limiter after CSA; the multiplier is
+the new critical path).

@@ -14,24 +14,42 @@ The M4 accelerator consists of two synthesized top-levels, both reported here:
       placed lane is the *datapath* Fmax ceiling the array converges to.
 
 ----------------------------------------------------------------------------
-(A) Full accel_top -- post-detailed-route STA  (run tag M4_ACCEL)
+(A) accel_top -- post-CTS / post-global-route mid-PnR STA  (run tag M4_ACCEL2)
 ----------------------------------------------------------------------------
 
 Design: accel_top (NUM_MAC=128, L_MAX=64 for the educational sky130 PnR --
         the architecture is L_MAX-parametric, see Section 9 in the report).
 Top-level pins: 137 (narrow AXI4-Stream + clk/rst), not 5,134.
 
-Post-detailed-route timing (`runs/M4_ACCEL/.../stapostpnr/summary.rpt`):
+Status: detailed routing did NOT complete on this 16 GB host. The deepest
+clean accel_top snapshot is post-CTS, post-resizer-timing-post-CTS, after
+global routing (which finished with 0 overflow on every layer) and after
+heuristic diode insertion, but BEFORE detailed routing. See report Section 9
+item 5.
 
-  Corner             Setup WNS   Achieved period   Achieved Fmax
-  nom_ff_n40C_1v95   see runs/M4_ACCEL/.../stapostpnr/summary.rpt
-  nom_tt_025C_1v80   see runs/M4_ACCEL/.../stapostpnr/summary.rpt
-  nom_ss_100C_1v60   see runs/M4_ACCEL/.../stapostpnr/summary.rpt  (sign-off corner)
+Post-CTS STA (`synth/accel_postcts_wns.rpt`, source
+ `runs/M4_ACCEL2/37-openroad-stamidpnr-2/`):
 
-(Full accel_top numbers populated from the `M4_ACCEL` run's
- `54-openroad-stapostpnr/summary.rpt`; the design closes within ~5% of the lane
- datapath ceiling reported in section (B), the small gap being the residual
- buffer-tree delay on the banked broadcast nets.)
+  Corner             Setup WNS   Achieved period   Achieved Fmax    Notes
+  nom_tt_025C_1v80   -2.731 ns   8.73 ns           ~115 MHz         post-CTS,
+                                                                    pre-DR
+
+  Setup TNS (tt):   -178.0 ns (over 84.9 k flop endpoints)
+  Clock skew (tt):  +0.493 ns setup / -0.477 ns hold
+
+These numbers include CTS clock-tree delay and the post-CTS timing-repair
+buffers (53,372 instances), but NOT detailed-route wire RC. Real detailed-
+route numbers would be slightly worse (added wire delay) for the worst paths
+already buffered, and similar for the rest.
+
+The slow-corner (ss) and fast-corner (ff) numbers are not reported here
+because the mid-PnR STA step in OpenLane 2 reports only the typical corner
+at this stage; the per-corner sign-off STA (`stapostpnr`) runs after
+detailed routing, which did not complete.
+
+The placed-lane datapath ceiling (section B) of ~113 MHz at ss / 215 MHz at
+tt is the load-bearing PnR evidence; the post-CTS accel_top number is a
+corroborating full-array data point.
 
 ----------------------------------------------------------------------------
 (B) Datapath ceiling -- placed-and-routed single lane (run tag M4_CSA_LANE)

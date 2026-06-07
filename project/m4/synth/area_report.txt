@@ -8,8 +8,9 @@ PDK/SCL: sky130A / sky130_fd_sc_hd
 Two top-levels were synthesized; numbers from both are reported here.
 
 ----------------------------------------------------------------------------
-(A) accel_top -- production wrapper, post-detailed-route
-    Run tag: M4_ACCEL  (config_accel.json)
+(A) accel_top -- production wrapper, post-CTS / post-global-route snapshot
+    Run tag: M4_ACCEL2  (config_accel.json with GPL_CELL_PADDING=2,
+                         GRT_REPAIR_ANTENNAS=false)
     Design: accel_top (NUM_MAC=128, DATA_WIDTH=8, ACC_WIDTH=32,
                        STREAM_WIDTH=64, L_MAX=64 for the educational sky130
                        PnR -- the architecture is L_MAX-parametric and a
@@ -17,14 +18,34 @@ Two top-levels were synthesized; numbers from both are reported here.
                        SRAM macros; see report Section 9.)
 ----------------------------------------------------------------------------
 
-Source: runs/M4_ACCEL/.../stapostpnr/state_out.json,
-        runs/M4_ACCEL/.../yosys-synthesis/reports/stat.rpt.
+Status: detailed routing did not complete (16 GB host memory limit on
+TritonRoute track assignment); see report Section 9 item 5. Numbers below
+are the deepest clean snapshot, taken from the post-CTS / post-resize-
+post-CTS state.
 
-  Total cells (post-PnR):     see runs/M4_ACCEL/.../state_out.json metric
-                              design__instance__count
-  Stdcell area:               see runs/M4_ACCEL/.../state_out.json metric
-                              design__instance__area
-  Top-level IO pins:          137  (narrow AXI4-Stream + clk/rst)
+Source: synth/accel_postcts_state.json
+        (filtered from runs/M4_ACCEL2/37-openroad-stamidpnr-2/state_out.json).
+
+  Total cells (post-CTS):         558,792 stdcells
+  Stdcell area:                   5,014,620 um^2  (5.01 mm^2)
+  Core area:                      10,778,500 um^2 (10.78 mm^2)
+  Die area:                       10,890,000 um^2 (3.3 x 3.3 mm)
+  Top-level IO pins:              137  (narrow AXI4-Stream + clk/rst)
+
+Cell-class breakdown (post-CTS, post-resize):
+  Sequential cells:                84,927
+  Multi-input combinational:      245,622
+  Clock buffers:                   11,787
+  Clock inverters:                  6,873
+  Timing-repair (setup) buffers:      123
+  Timing-repair (hold) buffers:    17,274
+  Other timing-repair buffers:     53,372  (metric:timing_repair_buffer)
+  Inverters:                        2,319
+  Tap cells:                      153,892  (sky130 well/tap density)
+  Fill cells:                       2,410  (only a fraction; fill not yet
+                                            inserted because detailed
+                                            placement was already done but
+                                            final fill pass runs post-DR)
 
 Composition (architectural):
   - 128 MAC lanes (the mac_array compute core)
@@ -32,6 +53,14 @@ Composition (architectural):
   - Banked broadcast tree (8 banks of 16 lanes; 1 cycle of registered fan-out)
   - Result serializer (1 result per beat over the 64-bit AXI4-Stream output)
   - Opcode-tagged input decoder (LOAD_WEIGHT / COMPUTE)
+
+The 84.9 k sequential cells are consistent with the architectural inventory:
+128 lanes x (8b weight + 16b product + 64b CSA + 32b result + 3b control) =
+~16 k inner-array flops; plus 128 x 64-deep x 8b weight banks = ~65 k flops
+in the weight register files; plus broadcast pipeline and serializer = a
+small remainder. The 53 k timing-repair buffers reflect the heavy fan-out
+of the activation and control pipelines across 128 lanes even after the
+banked broadcast tree.
 
 ----------------------------------------------------------------------------
 (B) Single placed lane (with CSA), full PnR

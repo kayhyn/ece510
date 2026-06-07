@@ -11,11 +11,13 @@
   "FP_SIZING": "absolute",
   "DIE_AREA": "0 0 3300 3300",
   "PL_TARGET_DENSITY_PCT": 55,
+  "GPL_CELL_PADDING": 2,
+  "DPL_CELL_PADDING": 1,
   "SYNTH_PARAMETERS": [
     "L_MAX=64"
   ],
   "RUN_HEURISTIC_DIODE_INSERTION": true,
-  "GRT_REPAIR_ANTENNAS": true,
+  "GRT_REPAIR_ANTENNAS": false,
   "pdk::sky130*": {
     "STD_CELL_LIBRARY": "sky130_fd_sc_hd"
   }

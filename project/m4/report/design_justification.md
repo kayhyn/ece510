@@ -229,27 +229,37 @@ numerical-accuracy verification that complements this logical verification.
 
 # 7. Synthesis results
 
-Synthesis used **OpenLane 2 v2.3.10 on the sky130A / sky130_fd_sc_hd PDK**,
-with two coordinated runs: `accel_top` (full place-and-route of the production
-wrapper, `synth/config_accel.json`, run tag `M4_ACCEL`) and a single placed
-lane (`lane_wrap = mac_array #(.NUM_MAC(1))`, `synth/config_lane.json`, run
-tag `M4_CSA_LANE`). The lane is included because the 128 lanes share identical
-per-lane logic and the broadcast buffer tree is itself a PnR fixup; the placed
-lane is therefore the *datapath* Fmax ceiling the array converges to.
+Synthesis used **OpenLane 2 v2.3.10 on the sky130A / sky130_fd_sc_hd PDK**.
+Two top-levels were taken through OpenLane and the evidence is hierarchical.
+The **authoritative full PnR sign-off** is a single placed lane (`lane_wrap =
+mac_array #(.NUM_MAC(1))` with the carry-save accumulator,
+`synth/config_lane.json`, run tag `M4_CSA_LANE`). Because the 128 lanes share
+identical per-lane logic and the broadcast buffer tree is a PnR fixup rather
+than a datapath element, the placed lane is the *datapath* Fmax ceiling the
+array converges to. The **production wrapper** `accel_top`
+(`synth/config_accel.json`, run tag `M4_ACCEL2`, `L_MAX=64` for tractability)
+was taken through yosys synthesis, floorplan, placement, CTS, post-CTS
+timing repair, and global routing; **detailed routing exceeded the host
+memory budget** on this 16 GB Mac (see Section 9 item 5), so the deepest
+clean `accel_top` snapshot is post-CTS / post-global-route, not post-detailed-
+route. Lane data is therefore the load-bearing PnR evidence; `accel_top`
+post-CTS data is a corroborating full-array snapshot.
 
 **Area (`synth/area_report.txt`).** The placed lane is **2,498 stdcells,
 13,128.8 um^2** post-detailed-route, DRC clean and LVS clean. The 134
 sequential cells per lane match the 3-stage pipeline (8b weight + 16b product
 + 32b CSA sum + 32b CSA carry + 32b result + shared control). A naive
-128-lane extrapolation gives ~1.68 mm^2; the actual `accel_top` post-PnR area
-is slightly above this because of the per-lane weight register files, the
-banked broadcast tree, and the result-serializer FSM, all reported in
-`synth/area_report.txt` section A. The **dominant area contributors** are
-(1) the 128 signed 8x8 multipliers, (2) the 128 dual 32-bit CSA registers,
-(3) the per-lane weight banks, and (4) the clock-tree buffering. Versus the M3
-single lane (2,000 cells, 23,130 um^2) the per-lane area is *down* despite the
-new CSA register, because M3 included AXI command glue and a runtime tap-select
-mux that M4 drops.
+128-lane extrapolation gives ~1.68 mm^2. The corroborating `accel_top`
+post-CTS snapshot (run `M4_ACCEL2`, step `37-openroad-stamidpnr-2`,
+`synth/accel_postcts_state.json`) is **558,792 stdcells, 5.01 mm^2** of
+stdcell area on a 3.3 mm x 3.3 mm die -- higher than the lane extrapolation
+because it includes 53,372 timing-repair buffers, ~11.8 k clock buffers, and
+153.9 k tap cells the lane figure does not. The **dominant area contributors**
+are (1) the 128 signed 8x8 multipliers, (2) the 128 dual 32-bit CSA
+registers, (3) the per-lane weight banks, and (4) the clock-tree buffering.
+Versus the M3 single lane (2,000 cells, 23,130 um^2) the per-lane area is
+*down* despite the new CSA register, because M3 included AXI command glue and
+a runtime tap-select mux that M4 drops.
 
 **Timing (`synth/timing_report.txt`).** At the 4.0 ns (250 MHz) target, the
 placed lane closes at:
@@ -271,13 +281,27 @@ that the carry-save accumulator successfully removed the 32-bit adder carry
 chain from the inner-loop critical path; the multiplier is the new limiter
 (see Section 9).
 
+The `accel_top` post-CTS snapshot (run `M4_ACCEL2`,
+`synth/accel_postcts_wns.rpt`) reports a typical-corner WNS of **-2.73 ns at
+the 6.0 ns / 167 MHz post-CTS target**, i.e. an achieved period of 8.73 ns
+(~115 MHz at tt). This is ~46% slower than the lane datapath ceiling at the
+same corner and is dominated by post-CTS clock skew plus the banked
+broadcast buffer tree, both of which would have been partially relieved by
+the detailed-route pass that did not complete (Section 9 item 5).
+
 **Power (`synth/power_report.txt`).** Post-PnR per-lane power at default
 switching activity: **2.84 mW (ss), 3.59 mW (tt)** -- ~40% sequential, ~26%
 combinational, ~34% clock. A naive 128x extrapolation gives ~363 mW (ss),
-~460 mW (tt); the authoritative full-array number comes from the `accel_top`
-post-PnR power report. Post-PnR numbers include CTS power that the early
-pre-PnR / default-activity estimate (193/255/343 mW) did not, so the figures
-are not directly comparable.
+~460 mW (tt). The corroborating `accel_top` post-CTS power report
+(`synth/accel_postcts_power.rpt`) is **1.02 W total at tt** at OpenLane
+default switching activity (alpha=0.5 on inputs), broken down as 55%
+sequential, 43% clock, 2% combinational. This number is an overestimate for
+two reasons: (a) default activity is workload-pessimistic for the streaming
+3x3 conv (the real activity factor on the broadcast tree is lower because
+weights stay constant during a stripe), and (b) it is pre-detailed-route, so
+wire RC and the final timing-repair buffer count are not yet annotated. The
+qualitative split (sequential + clock dominate, combinational is negligible)
+is consistent with the per-lane breakdown.
 
 # 8. Benchmark results
 
@@ -367,13 +391,36 @@ the routed netlist with VCD/SAIF annotation; this was on the M4 punch-list
 and is the cleanest single remaining improvement to the energy column of
 Section 8.
 
+**(5) `accel_top` detailed routing did not complete on this host.** Two
+PnR attempts were made. Run `M4_ACCEL` (default antenna-repair config) died
+at step 42 (`OpenROAD.RepairAntennas`) on the diode-insertion sub-step --
+the known OpenLane 2 wart triggered by `GPL_CELL_PADDING=0`. Run
+`M4_ACCEL2` (`config_accel.json` with `GPL_CELL_PADDING=2`,
+`GRT_REPAIR_ANTENNAS=false`) cleared antenna repair and completed global
+routing with **zero overflow on every metal layer** (`met1` 50.2%,
+`met2` 45.2%, `met3` 21.2%, `met4` 27.1%, `met5` 1.2%), but
+detailed routing (TritonRoute track assignment, 441,515 nets, 3.5 M routing
+guides) exceeded the **16 GB host memory budget** and the docker container
+was OOM-killed mid-track-assignment. The deepest clean `accel_top` snapshot
+is therefore post-CTS / post-global-route (run `M4_ACCEL2`, step
+`37-openroad-stamidpnr-2`), summarised in `synth/accel_postcts_*` and quoted
+in Section 7. The lane PnR (`M4_CSA_LANE`) is unaffected and remains the
+load-bearing sky130 sign-off. What I would do to close `accel_top` PnR: run
+on a host with >=32 GB RAM, or split into hierarchical PnR with the
+mac_array placed as a black box and stitched at top level -- the latter is
+the standard industrial approach for arrays of this size and the per-lane
+banks already make it natural.
+
 What did work, and is fully confirmed by measurement: the output-stationary,
 weight-streaming dataflow sustains 127.861 of 128 MAC/cycle with zero
-functional errors; the production `accel_top` wrapper routes cleanly to
-DRC/LVS sign-off at 137 pins; and the carry-save accumulator successfully
-removed the 32-bit adder from the inner-loop critical path. The remaining
-risk is timing closure (the multiplier), not parallelism, correctness, or
-routability.
+functional errors; the placed single lane routes cleanly to DRC/LVS sign-off
+at the 4.0 ns target with 113-333 MHz across corners; the production
+`accel_top` wrapper elaborates through yosys and completes through global
+routing with zero congestion overflow on every metal layer; and the
+carry-save accumulator successfully removed the 32-bit adder from the
+inner-loop critical path. The remaining risks are (a) timing closure on the
+multiplier and (b) host-memory-bound detailed routing on the educational
+sky130 flow -- neither is a parallelism, correctness, or congestion problem.
 
 ---
 
