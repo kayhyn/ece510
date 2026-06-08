@@ -1,15 +1,15 @@
-# Heilmeier Answers (Updated Post-Profiling)
+# Heilmeier Answers (Updated After M4)
 
 ## 1. What are you trying to do?
 
-I want to build a dedicated hardware accelerator to perform the 3×3 INT8
+I investigated a dedicated hardware accelerator for the 3×3 INT8
 convolution operation — the single most time-consuming step in YOLO-nano
 object detection inference. Today this runs on general-purpose processors that
-waste energy on capabilities my task doesn't need. My chip performs only this
-one operation with a small array of fixed-function multiply-accumulate units,
-so it can do it faster per watt. The goal is a module that could sit inside a
-small camera or sensor and run the convolution layers of YOLO-nano without
-needing a full GPU.
+also execute work outside the dense reduction. The final chiplet performs the
+parallel INT8 products and INT32 reductions with 128 fixed-function MAC lanes;
+a host remains responsible for sliding-window generation, padding, and adding
+nine returned tile partials. It is a research prototype of the reduction
+accelerator, not a complete YOLO-nano inference engine.
 
 ## 2. How is it done today, and what are the limits of current practice?
 
@@ -27,16 +27,15 @@ customized for a specific model's layer shapes or deployment constraints.
 
 ## 3. What is new in your approach and why do you think it will be successful?
 
-I am designing a custom INT8 MAC array (128 units at 250 MHz, 64 GOPS) tuned
-to the dominant 3×3 convolution shape in YOLO-nano. **Roofline analysis
-confirms this kernel is compute-bound on both the CPU baseline and the proposed
-accelerator**, meaning throughput scales directly with the number of multipliers.
-INT8 arithmetic reduces each multiplier's area by ~4× compared to FP32,
-letting me pack more MACs into a given silicon or FPGA budget. The architecture
-streams feature-map data through line buffers via AXI4-Stream and holds weights
-in on-chip SRAM, achieving ~32 GB/s on-chip bandwidth — far more than the
-~91 MB/s required at target throughput, leaving 4× headroom on the interface
-so the design will not become I/O-bound. Profiling changed my confidence in one
-key detail: the arithmetic intensity is even higher than I initially expected
-(673 vs. a rough estimate of ~100–200), which strengthens the case for a
-compute-focused design. More MACs will deliver near-linear speedup.
+The final design is a custom 128-lane INT8 MAC array behind a narrow
+AXI4-Stream interface. It uses output-stationary 64-element tiles and
+carry-save accumulation, then serializes 128 channel partials for host
+accumulation. The original proposal assumed full 576-entry on-chip weights,
+line buffers, 250 MHz, and a non-interface-bound design. Those assumptions did
+not survive implementation: inferred flip-flop storage forced 64-entry tiles,
+the serializer became the main throughput limiter, and the full wrapper did
+not close timing. The measured RTL schedule combined with a setup-limited
+post-CTS frequency projection gives 9.335 GFLOP/s, but this is not a
+timing-closed or end-to-end demonstrated speedup. The project is successful as
+a rigorous implementation study because it identifies and quantifies where the
+original roofline assumptions fail at the production interface.

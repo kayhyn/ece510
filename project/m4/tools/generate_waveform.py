@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the annotated M4 end-to-end waveform image from the simulator VCD.
-
-Produces project/m4/sim/final_waveform.png: two zoom panels of one end-to-end
-transaction through the integrated `top` (AXI4-Stream stream_if -> compute_core
--> mac_array): (A) the input stream start, showing the AXI4-Stream handshake and
-the first/last tags entering the array; (B) the first 128-channel output pixel
-draining on the output stream after the L=576 reduction.
-"""
+"""Generate the annotated final production accel_top waveform from the VCD."""
 
 from pathlib import Path
 
@@ -117,17 +110,17 @@ def find_first_edge(events, after_cyc=0):
 def main():
     s = parse_vcd(VCD_PATH)
 
-    bits = ["rst", "s_tvalid", "s_tready", "s_first", "s_last",
-            "core_in_valid", "core_in_first", "core_in_last",
-            "core_out_valid", "m_tvalid", "m_tready"]
+    bits = ["rst", "s_tvalid", "s_tready", "comp_first", "comp_last",
+            "array_in_valid", "array_in_first", "array_in_last",
+            "array_out_valid", "draining", "m_tvalid", "m_tready"]
 
-    # Panel A: input stream start (first ~16 cycles after reset deassert).
-    start_cyc = find_first_edge(s["s_tvalid"]) or 4
-    a0 = (start_cyc - 2) * CLK_PS
+    # Panel A: first compute tile enters the array after its weight-load phase.
+    start_cyc = find_first_edge(s["array_in_valid"]) or 4
+    a0 = (start_cyc - 5) * CLK_PS
     a1 = (start_cyc + 12) * CLK_PS
 
-    # Panel B: first output pixel draining on the output stream.
-    out_cyc = find_first_edge(s["core_out_valid"]) or 580
+    # Panel B: first 64-tap partial result enters the serializer.
+    out_cyc = find_first_edge(s["array_out_valid"]) or 70
     b0 = (out_cyc - 4) * CLK_PS
     b1 = (out_cyc + 10) * CLK_PS
 
@@ -135,22 +128,21 @@ def main():
 
     draw_panel(
         axa, s, a0, a1, bits,
-        "M4 End-to-End Waveform (A): input AXI4-Stream start -> array",
-        [(start_cyc, 1, "s_tvalid & s_tready handshake;\ns_first tags pixel 0", "#1a6"),
-         (start_cyc + 1, 0, "beat registered ->\ncore_in_valid/core_in_first", "#15c")],
+        "M4 Production Waveform (A): first 64-tap compute tile enters accel_top",
+        [(start_cyc, 1, "first compute beat reaches array;\narray_in_first starts partial sum", "#1a6"),
+         (start_cyc + 1, 0, "one reduction element\naccepted per cycle", "#15c")],
     )
 
     drain_cyc = find_first_edge(s["m_tvalid"], after_cyc=out_cyc - 2) or (out_cyc + 1)
     draw_panel(
         axb, s, b0, b1, bits,
-        "M4 End-to-End Waveform (B): first output pixel drains "
-        "(128 channels after L=576 reduction)",
-        [(out_cyc, 1, "core_out_valid pulse\n(pixel 0 complete)", "#d60"),
-         (drain_cyc, 0, "m_tvalid & m_tready:\n128-ch result accepted", "#c06")],
+        "M4 Production Waveform (B): 64-tap partial result serializes over AXI4-Stream",
+        [(out_cyc, 1, "array_out_valid:\n64-tap partial complete", "#d60"),
+         (drain_cyc, 0, "draining/m_tvalid:\n128 channel beats begin", "#c06")],
     )
 
-    fig.suptitle("M4 128-MAC accelerator: one end-to-end transaction "
-                 "(top = stream_if + compute_core/mac_array)", fontsize=11)
+    fig.suptitle("M4 synthesized configuration: accel_top, L_MAX=64, "
+                 "narrow AXI4-Stream + serializer", fontsize=11)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT_PATH, dpi=150)

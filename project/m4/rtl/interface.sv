@@ -4,13 +4,16 @@
  * Module: stream_if
  *
  * Purpose:
- *   AXI4-Stream-style streaming interface for the M4 128-MAC array. This is the
+ *   Development-only wide AXI4-Stream-style interface for the 128-MAC array.
+ *   This was the
  *   M1-selected AXI4-Stream transport, realized for the parallel array: it
  *   accepts one reduction-element beat per cycle on an input stream and drains
  *   one 128-channel output-pixel result on an output stream. It replaces the
  *   M2/M3 single-word AXI4-Stream command interface (`axis_interface`), which
  *   moved one INT8 operand per transaction, with a wide streaming-data interface
- *   sized to feed all 128 lanes in parallel.
+ *   sized to feed all 128 lanes in parallel. The final production interface is
+ *   implemented inside `accel_top` and uses narrow opcode-tagged input plus
+ *   serialized output; this module is retained only as development history.
  *
  * Input stream (host -> accelerator), one reduction element per beat:
  *   s_tvalid     beat valid

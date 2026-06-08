@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 OUT_PATH = ROOT / "project" / "m2" / "sim" / "precision_analysis.json"
 
 SAMPLES = 1000
-TAPS = 9
+TAPS = 576
 SEED = 510
 ACTIVATION_SCALE = 1.0 / 127.0
 WEIGHT_SCALE = 1.0 / 127.0

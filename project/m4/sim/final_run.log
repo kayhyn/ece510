@@ -1,9 +1,12 @@
 VCD info: dumpfile project/m4/sim/final_top.vcd opened for output.
-M4 TOP END-TO-END BENCH --------------------------------
-  NUM_MAC=128  L=576  N_PIX=8
-  pixels_captured=8  errors=0
+M4 FINAL PRODUCTION TILED BENCH ---------------------------
+  NUM_MAC=128 TILE_L=64 NUM_TILES=9 FULL_L=576 N_PIX=8
+  partial_results_checked=9216 full_results_checked=1024
+  partial_errors=0 full_errors=0
   total_macs=589824
-  stream_cycles=4613
-  sustained_macs_per_cycle=127.861
-PASS: m4 128-MAC array end-to-end
-project/m4/tb/tb_top.sv:162: $finish called at 46170000 (1ps)
+  weight_load_beats=73728 compute_beats=4608 drain_beats=9216
+  total_cycles=87988 (includes weight load, compute, serialization, stalls)
+  backpressure_cycles=3 backpressure_errors=0 unstalled_schedule_cycles=87985
+  useful_macs_per_total_cycle=6.703
+PASS: final synthesized-config accel_top tiled 576-element reduction
+project/m4/tb/tb_top.sv:284: $finish called at 879930000 (1ps)

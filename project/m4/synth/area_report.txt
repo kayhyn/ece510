@@ -1,132 +1,68 @@
-Area / Cell Count Report -- M4 128-MAC Accelerator
-=====================================================
+Area / Cell Count Report -- Final M4 Production Chiplet
+========================================================
 
-OpenLane 2 v2.3.10 (containerized via colima/docker, image
-  ghcr.io/efabless/openlane2:2.3.10)
-PDK/SCL: sky130A / sky130_fd_sc_hd
+Tool / PDK: OpenLane 2 v2.3.10, sky130A / sky130_fd_sc_hd
 
-Two top-levels were synthesized; numbers from both are reported here.
+FINAL DESIGN: accel_top, NUM_MAC=128, L_MAX=64
+Configuration: config.json
+Run: M4_ACCEL2
+Source: accel_postcts_state.json
+Status: post-CTS / post-global-route; detailed routing did not complete.
 
-----------------------------------------------------------------------------
-(A) accel_top -- production wrapper, post-CTS / post-global-route snapshot
-    Run tag: M4_ACCEL2  (config_accel.json with GPL_CELL_PADDING=2,
-                         GRT_REPAIR_ANTENNAS=false)
-    Design: accel_top (NUM_MAC=128, DATA_WIDTH=8, ACC_WIDTH=32,
-                       STREAM_WIDTH=64, L_MAX=64 for the educational sky130
-                       PnR -- the architecture is L_MAX-parametric and a
-                       real ASIC would back the 576-deep weight bank with
-                       SRAM macros; see report Section 9.)
-----------------------------------------------------------------------------
+Full production wrapper
+-----------------------
+  Total post-CTS cells:          558,792
+  Standard-cell area:          5,014,620 um^2 (5.015 mm^2)
+  Core area:                  10,778,500 um^2 (10.779 mm^2)
+  Die area:                   10,890,000 um^2 (3.3 mm x 3.3 mm)
+  Top-level IO pins:                 137
 
-Status: detailed routing did not complete (16 GB host memory limit on
-TritonRoute track assignment); see report Section 9 item 5. Numbers below
-are the deepest clean snapshot, taken from the post-CTS / post-resize-
-post-CTS state.
+Cell-class breakdown
+--------------------
+  Sequential cells:                 84,927
+  Multi-input combinational:       245,622
+  Clock buffers:                    11,787
+  Clock inverters:                   6,873
+  Timing-repair hold buffers:       17,274
+  Other timing-repair buffers:      53,372
+  Inverters:                         2,319
+  Tap cells:                       153,892
+  Fill cells at snapshot:            2,410
 
-Source: synth/accel_postcts_state.json
-        (filtered from runs/M4_ACCEL2/37-openroad-stamidpnr-2/state_out.json).
+Dominant contributors
+---------------------
+1. The 128 inferred 64-entry x 8-bit per-lane weight register banks.
+2. The 128 signed 8x8 multipliers.
+3. Per-lane product, carry-save sum/carry, and result registers.
+4. Clock-tree and timing-repair buffering across the full wrapper.
 
-  Total cells (post-CTS):         558,792 stdcells
-  Stdcell area:                   5,014,620 um^2  (5.01 mm^2)
-  Core area:                      10,778,500 um^2 (10.78 mm^2)
-  Die area:                       10,890,000 um^2 (3.3 x 3.3 mm)
-  Top-level IO pins:              137  (narrow AXI4-Stream + clk/rst)
+The RTL weight capacity is exactly 128 x 64 x 8 = 65,536 stored bits. Because
+OpenLane/Yosys did not map these inferred banks to SRAM macros, those bits
+require at least 65,536 sequential cells: **77.17% of the final design's
+84,927 sequential cells**. This lower-bound count quantitatively establishes
+weight storage as the dominant state contributor even before its read muxes
+and write decode are counted. The 17,274 inserted hold buffers alone account
+for 3.09% of all post-CTS cells; all timing-repair buffers together account
+for 70,646 cells, or 12.64% of the total.
 
-Cell-class breakdown (post-CTS, post-resize):
-  Sequential cells:                84,927
-  Multi-input combinational:      245,622
-  Clock buffers:                   11,787
-  Clock inverters:                  6,873
-  Timing-repair (setup) buffers:      123
-  Timing-repair (hold) buffers:    17,274
-  Other timing-repair buffers:     53,372  (metric:timing_repair_buffer)
-  Inverters:                        2,319
-  Tap cells:                      153,892  (sky130 well/tap density)
-  Fill cells:                       2,410  (only a fraction; fill not yet
-                                            inserted because detailed
-                                            placement was already done but
-                                            final fill pass runs post-DR)
+The available reports do not provide reliable hierarchical area after
+flattening, so no unsupported module-level area split is claimed. Weight
+storage is the main reason the final synthesized configuration uses L_MAX=64
+rather than the full 576-element reduction depth. A practical next
+implementation would replace inferred flip-flop banks with SRAM macros.
 
-Composition (architectural):
-  - 128 MAC lanes (the mac_array compute core)
-  - 128 per-lane weight banks (L_MAX=64 entries x 8b each, register-inferred)
-  - Banked broadcast tree (8 banks of 16 lanes; 1 cycle of registered fan-out)
-  - Result serializer (1 result per beat over the 64-bit AXI4-Stream output)
-  - Opcode-tagged input decoder (LOAD_WEIGHT / COMPUTE)
+Supplementary routed single lane
+---------------------------------
+Run: M4_CSA_LANE
+Source: lane_metrics.json and lane_yosys_stat.rpt
 
-The 84.9 k sequential cells are consistent with the architectural inventory:
-128 lanes x (8b weight + 16b product + 64b CSA + 32b result + 3b control) =
-~16 k inner-array flops; plus 128 x 64-deep x 8b weight banks = ~65 k flops
-in the weight register files; plus broadcast pipeline and serializer = a
-small remainder. The 53 k timing-repair buffers reflect the heavy fan-out
-of the activation and control pipelines across 128 lanes even after the
-banked broadcast tree.
+  Post-route instances:              2,498 standard cells
+  Post-route standard-cell area: 13,128.8 um^2
+  Sequential cells:                    134
+  IO pins:                               56
+  DRC / LVS:                          clean
 
-----------------------------------------------------------------------------
-(B) Single placed lane (with CSA), full PnR
-    Run tag: M4_CSA_LANE
-    Design: lane_wrap = mac_array #(.NUM_MAC(1)) with carry-save accumulator
-----------------------------------------------------------------------------
-
-Source: synth/lane_metrics.json (filtered from state_out.json) +
-        synth/lane_yosys_stat.rpt (full mapped cell breakdown).
-        Full OpenLane run dir is gitignored due to size.
-
-  Post-PnR stdcell area:      13,128.8 um^2
-  Post-PnR instance count:    2,498 stdcells
-    of which sequential:        134 flip-flops
-            clock buffers:       19
-            clock inverters:     13
-            timing-repair bufs: 209
-            fill cells:        6,487 (utilization 16.4% at the 300x300 floorplan)
-  IO pins:                       56
-  DRC clean, LVS clean.
-
-Yosys-mapped (pre-PnR) area:  11,594.9 um^2  (1,113 cells)
-  - 134 dfxtp_2 flip-flops:
-      8b Stage A weight + 16b Stage B product
-      + 32b CSA sum reg + 32b CSA carry reg
-      + 32b output result reg + 3b shared valid/first/last pipeline
-  - Combinational mix: ~80 and2/and3, ~110 nor2, ~50 a21o, ~70 a21o,
-    ~24 xor2 -- i.e. the 8x8 multiplier + the 3-input XOR/majority CSA
-    adders + the 32-bit final resolve add.
-
-----------------------------------------------------------------------------
-Naive 128-lane extrapolation
-----------------------------------------------------------------------------
-
-Single-lane post-PnR x 128:
-  Cell count:  2,498 x 128 = 319,744 stdcells
-  Area:        13,128.8 x 128 = 1,680,486 um^2  (~1.68 mm^2)
-
-The actual `accel_top` is smaller-than-128x-lane because:
-  + shared control pipeline (one set of valid/first/last + activation regs)
-  + the banked broadcast tree's CTS savings
-  - but adds the 128 per-lane weight register files and serializer FSM
-
-The authoritative full-array number is the `accel_top` post-PnR number in
-section (A); the 128x lane figure is an order-of-magnitude check.
-
-----------------------------------------------------------------------------
-Comparison to predecessors
-----------------------------------------------------------------------------
-
-  M3 single 9-tap lane (M3_SYNTH, pre-PnR):  ~2,000 cells, 23,130 um^2
-  M4 single lane post-PnR (with CSA):         2,498 cells, 13,129 um^2
-
-Per-lane area DOWN despite the new CSA registers, because M3 included AXI
-command glue and the runtime tap-select mux that M4 drops; M4 amortizes those
-across one shared pipeline.
-
-----------------------------------------------------------------------------
-Dominant area contributors
-----------------------------------------------------------------------------
-
-In the placed lane, the dominant area contributors are:
-  1. The 8x8 signed multiplier (~25% of combinational cells)
-  2. The 32-bit CSA sum/carry registers (~24% of sequential area)
-  3. The 32-bit final-resolve adder, used only on `in_last`
-  4. The clock-tree buffers (~13 clock inverters + 19 clock buffers per lane)
-
-In the 128-lane array, the additional dominant contributor is:
-  5. The 128 per-lane weight register files (L_MAX x 8b each)
+A naive 128x lane area is approximately 1.68 mm^2, but it excludes the
+production wrapper's inferred weight storage, result serializer, clock-tree
+overhead, and extensive timing-repair buffering. The full accel_top post-CTS
+number above is the relevant final-design area estimate.

@@ -1,104 +1,55 @@
-Power Report -- M4 128-MAC Array
-=================================
+Power Report -- Final M4 Production Chiplet
+=============================================
 
-OpenLane 2 v2.3.10 (containerized via colima/docker)
-PDK/SCL: sky130A / sky130_fd_sc_hd
-Clock target: 4.0 ns (250 MHz)
+Tool / PDK: OpenLane 2 v2.3.10, sky130A / sky130_fd_sc_hd
 
-Two power estimates are reported, one per top-level taken through OpenLane:
+FINAL DESIGN: accel_top, NUM_MAC=128, L_MAX=64
+Configuration: config.json
+Run: M4_ACCEL2
+Source: accel_postcts_power.rpt
+Status: post-CTS / post-global-route, default switching activity.
 
-(A) accel_top -- production wrapper, full place-and-route
-(B) Single-lane post-PnR power (lane_wrap = mac_array #(.NUM_MAC(1)) with the
-    carry-save accumulator), scaled to a 128-lane array estimate
+Full production-wrapper estimate
+---------------------------------
+  Corner:          nom_tt_025C_1v80
+  Internal power:  801.5 mW
+  Switching power: 216.3 mW
+  Leakage power:     2.3 uW
+  Total power:       1.018 W
 
-----------------------------------------------------------------------------
-(A) accel_top -- post-CTS / post-global-route power, default switching
-    Run tag M4_ACCEL2  (config_accel.json with GPL_CELL_PADDING=2,
-                        GRT_REPAIR_ANTENNAS=false)
-----------------------------------------------------------------------------
+Group split:
+  Sequential:       563.1 mW (55.3%)
+  Clock:            434.6 mW (42.7%)
+  Combinational:     20.0 mW ( 2.0%)
 
-Status: detailed routing did not complete (16 GB host memory limit on
-TritonRoute track assignment); see report Section 9 item 5. Numbers below
-are post-CTS / post-resize-post-CTS, the deepest clean snapshot.
+Sequential storage and clock distribution dominate, consistent with the large
+inferred per-lane weight register banks and full-array clock tree.
 
-Source: synth/accel_postcts_power.rpt
-        (= runs/M4_ACCEL2/37-openroad-stamidpnr-2/power.rpt).
+Final benchmark energy estimate
+-------------------------------
+The corrected production benchmark runtime is 42.714 ms/layer:
 
-  Corner             Internal       Switching      Leakage        Total
-  nom_tt_025C_1v80   801.5 mW       216.3 mW       2.3 uW         1.018 W
+  1.018 W x 42.714 ms = 43.483 mJ/layer
+  9.335 GFLOP/s / 1.018 W = 9.17 GFLOP/s/W
 
-Group split (tt):
-  Sequential:    563.1 mW  (55.3%)
-  Combinational:  20.0 mW  ( 2.0%)
-  Clock:         434.6 mW  (42.7%)
+Limitations
+-----------
+* Detailed routing did not complete, so final wire parasitics and post-route
+  buffer changes are absent.
+* Default switching activity is used; the production tiled workload was not
+  applied through SAIF/VCD power annotation.
+* Power was analyzed under the 6.0 ns target constraint, while benchmark
+  runtime uses the slower 114.536 MHz setup-limited projection. Multiplying
+  1.018 W by that runtime is therefore a conservative, unscaled estimate.
+* This is an estimate, not a measured wall-plug result.
 
-Internal / switching split (tt): 78.7% internal, 21.3% switching.
+Supplementary routed single-lane estimates
+-------------------------------------------
+Sources: lane_power_tt.rpt, lane_power_ss.rpt, lane_power_ff.rpt
 
-Caveats:
-* Pre-detailed-route: wire RC and post-DR buffer-chain power are not yet
-  annotated. The figure is more representative of the active-cell power
-  (cells + CTS) than the total chip power, which would include wire
-  switching.
-* Default switching activity (alpha=0.5 on every input) is workload-
-  pessimistic for streaming 3x3 conv: the activation broadcast nets toggle
-  on every pixel but the weight banks are static for the whole stripe, so
-  the real combinational activity is lower than alpha=0.5 implies.
-* The qualitative split (clock + sequential dominate, combinational
-  negligible) is consistent with the per-lane breakdown in section (B),
-  where clock + sequential are 75% of total per-lane power.
-* `accel_top` PnR uses `L_MAX=64` (parametric override) so the weight
-  register file is tractable for the educational sky130 inference flow; a
-  real ASIC would back the 576-deep bank with SRAM macros, which would
-  lower the weight-storage power.
+  nom_tt_025C_1v80: 3.592 mW
+  nom_ss_100C_1v60: 2.837 mW
 
-For a final energy claim, re-run with SAIF or VCD annotated from the
-`tb_accel_top` workload (128 active lanes streaming 8 pixels of L=576), and
-ideally on a host where detailed routing closes.
-
-----------------------------------------------------------------------------
-(B) Single placed lane, post-PnR (with CSA), default activity
-    Run tag M4_CSA_LANE
-----------------------------------------------------------------------------
-
-Source: synth/lane_power_tt.rpt, synth/lane_power_ss.rpt, synth/lane_power_ff.rpt
-        (full OpenLane run dir is gitignored due to size).
-
-  Corner             Sequential     Combinational  Clock         Total
-  nom_tt_025C_1v80   1.440 mW       0.923 mW       1.229 mW      3.592 mW
-  nom_ss_100C_1v60   1.118 mW       0.742 mW       0.977 mW      2.837 mW
-
-  tt split: Sequential 40.1%, Combinational 25.7%, Clock 34.2%.
-
-Naive 128-lane extrapolation (per-lane x 128):
-
-  Corner             Total (single lane)     128x array estimate
-  nom_tt_025C_1v80   3.592 mW                ~460 mW
-  nom_ss_100C_1v60   2.837 mW                ~363 mW
-
-The 128x scaling is an upper bound: clock-tree power does not strictly scale
-linearly under CTS (the H-tree shares high-level buffers), and the shared
-control pipeline + the banked broadcast tree are not 128x. The full `accel_top`
-post-PnR number in section (A) is the authoritative figure.
-
-Comparison to early pre-PnR estimates:
-  Early pre-PnR full mac_array (no CSA, no PnR):  ~255 mW (tt), ~193 mW (ss).
-  These earlier numbers were before CTS/buffer insertion and so excluded the
-  bulk of clock-tree power; the post-PnR numbers above include it.
-
-Comparison to the M3 single 9-tap lane (M3_SYNTH):
-  M3 single lane:   ~1.569 mW total (pre-PnR)
-  M4 single lane:   ~3.59 mW total (post-PnR, tt, with CSA)
-
-The increase reflects (a) the added CSA carry register per lane, (b) the
-3-stage pipeline registers (M3 was unpipelined), and (c) post-PnR clock-tree
-power that the M3 pre-PnR number did not include.
-
-----------------------------------------------------------------------------
-Caveats
-----------------------------------------------------------------------------
-
-* This is OpenLane default switching activity (alpha 0.5 on inputs). For a
-  final energy claim, re-run with a SAIF or VCD annotated from the
-  `tb_accel_top` workload (128 active lanes streaming 8 pixels of L=576).
-* The slow-corner (ss) numbers include leakage (~1.9 uW total in the lane,
-  ~0.24 mW for 128x).
+These values characterize one routed compute lane only. They are not scaled
+for the final benchmark because that would omit the production wrapper's
+weight storage, serializer, shared broadcast network, and full clock tree.

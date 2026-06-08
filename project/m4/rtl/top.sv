@@ -4,19 +4,24 @@
  * Module: top
  *
  * Purpose:
- *   Milestone 4 integrated accelerator top. It wires the AXI4-Stream streaming
+ *   Development-only wide integrated top. It wires the AXI4-Stream streaming
  *   interface (`stream_if`) to the 128-MAC INT8 compute core (`compute_core`,
  *   which wraps `mac_array`). This is the full integration of the project's
  *   planned datapath: the host streams one reduction element per cycle into the
  *   array through the input stream, the array sustains NUM_MAC MACs/cycle, and
  *   each completed output pixel's 128 channel results drain on the output stream.
  *
- *   This is the M4 scale-up of the M3 `top` (which integrated the single 9-tap
+ *   This was the initial M4 scale-up of the M3 `top` (which integrated the single 9-tap
  *   M2 lane behind a single-word AXI4-Stream command interface). The compute
  *   core grows from 1 lane to 128 parallel lanes and the interface widens from a
  *   one-operand-per-transaction command port to a full streaming-data port.
  *
- * Ports: see stream_if for the AXI4-Stream input/output semantics.
+ *   The final synthesized and benchmarked production boundary is `accel_top`,
+ *   which uses narrow opcode-tagged streams, internal 64-entry weight banks,
+ *   and serialized results. This module is retained only as development
+ *   history and is not a final performance source.
+ *
+ * Ports: see stream_if for the development interface semantics.
  *
  * Clocking and reset: single clock domain clk; synchronous active-high reset.
  */

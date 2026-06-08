@@ -1,110 +1,94 @@
-Timing Report -- M4 128-MAC Array
-==================================
+Timing Report -- Final M4 Production Chiplet
+==============================================
 
-OpenLane 2 v2.3.10 (containerized), PDK/SCL: sky130A / sky130_fd_sc_hd.
-Clock target: 4.0 ns (250 MHz).
+Tool / PDK: OpenLane 2 v2.3.10, sky130A / sky130_fd_sc_hd
 
-The M4 accelerator consists of two synthesized top-levels, both reported here:
-  (A) `accel_top` -- the production wrapper instantiated for full place-and-route
-      (on-chip weight memory + banked broadcast tree + result serializer +
-      narrow AXI4-Stream). This is the design actually deposited on silicon.
-  (B) `lane_wrap` -- a single MAC lane (NUM_MAC=1) taken through full PnR.
-      Because the 128 lanes share identical per-lane logic and the broadcast
-      buffer tree is itself a PnR fixup rather than a datapath element, the
-      placed lane is the *datapath* Fmax ceiling the array converges to.
+FINAL BENCHMARKED DESIGN: accel_top, NUM_MAC=128, L_MAX=64
+Configuration: config.json
+Run: M4_ACCEL2
+Clock target: 6.0 ns (166.667 MHz)
 
-----------------------------------------------------------------------------
-(A) accel_top -- post-CTS / post-global-route mid-PnR STA  (run tag M4_ACCEL2)
-----------------------------------------------------------------------------
+Status
+------
+The production wrapper completed synthesis, placement, CTS, post-CTS timing
+repair, and global routing with zero overflow. Detailed routing failed during
+TritonRoute track assignment. Therefore the values below are post-CTS /
+post-global-route estimates, not sign-off timing.
 
-Design: accel_top (NUM_MAC=128, L_MAX=64 for the educational sky130 PnR --
-        the architecture is L_MAX-parametric, see Section 9 in the report).
-Top-level pins: 137 (narrow AXI4-Stream + clk/rst), not 5,134.
+Full accel_top post-CTS typical-corner timing
+----------------------------------------------
+Source: accel_postcts_wns.rpt and accel_postcts_tns.rpt
 
-Status: detailed routing did NOT complete on this 16 GB host. The deepest
-clean accel_top snapshot is post-CTS, post-resizer-timing-post-CTS, after
-global routing (which finished with 0 overflow on every layer) and after
-heuristic diode insertion, but BEFORE detailed routing. See report Section 9
-item 5.
+  Corner:                    nom_tt_025C_1v80
+  Setup WNS at 6.0 ns:       -2.730896 ns
+  Setup TNS:                 -178.005 ns
+  Hold WNS:                  -1.852060 ns
+  Hold TNS:                  -8,233.46 ns
+  Hold violation count:       32,070
+  Register-to-register hold: +0.197419 ns worst slack, 0 violations
+  Max-slew violations:        2
+  Max-cap violations:         1
+  Setup-limited period projection:  8.730896 ns
+  Setup-limited Fmax projection:   114.536 MHz
 
-Post-CTS STA (`synth/accel_postcts_wns.rpt`, source
- `runs/M4_ACCEL2/37-openroad-stamidpnr-2/`):
+The final benchmark projection uses 114.536 MHz because this is the deepest
+available setup result for the complete interface-connected production wrapper.
+Full-wrapper slow/fast-corner sign-off results are unavailable because detailed
+routing and post-PnR multi-corner STA did not complete.
 
-  Corner             Setup WNS   Achieved period   Achieved Fmax    Notes
-  nom_tt_025C_1v80   -2.731 ns   8.73 ns           ~115 MHz         post-CTS,
-                                                                    pre-DR
+The full wrapper does not close setup or hold timing at this snapshot. The
+reported register-to-register hold paths are positive; the unresolved hold set
+is outside register-to-register paths. Because detailed routing and final
+timing repair did not complete, these violations remain unresolved and the
+114.536 MHz value is a setup-limited estimate, not sign-off.
 
-  Setup TNS (tt):   -178.0 ns (over 84.9 k flop endpoints)
-  Clock skew (tt):  +0.493 ns setup / -0.477 ns hold
+Worst setup path
+----------------
+Source: accel_postcts_checks.rpt
 
-These numbers include CTS clock-tree delay and the post-CTS timing-repair
-buffers (53,372 instances), but NOT detailed-route wire RC. Real detailed-
-route numbers would be slightly worse (added wire delay) for the worst paths
-already buffered, and similar for the rest.
+  Startpoint: result-path flip-flop `_509898_`
+  Endpoint:   serialized output port `m_tdata[26]`
+  Path:       result register -> fanout/max-cap buffers -> serializer mux logic
+              -> output buffers -> m_tdata[26]
+  Slack:      -2.730896 ns
 
-The slow-corner (ss) and fast-corner (ff) numbers are not reported here
-because the mid-PnR STA step in OpenLane 2 reports only the typical corner
-at this stage; the per-corner sign-off STA (`stapostpnr`) runs after
-detailed routing, which did not complete.
+The final full-wrapper critical path is therefore in the serialized output
+interface, not in the MAC multiplier. This is consistent with the final
+interface/serialization-bound benchmark.
 
-The placed-lane datapath ceiling (section B) of ~113 MHz at ss / 215 MHz at
-tt is the load-bearing PnR evidence; the post-CTS accel_top number is a
-corroborating full-array data point.
+I/O timing limitation
+---------------------
+The run log warns that `PNR_SDC_FILE` and `SIGNOFF_SDC_FILE` were not defined,
+so OpenLane used its generic fallback SDC. The unresolved non-register-to-
+register hold set must therefore be interpreted as an interface-constraint and
+unfinished-repair failure, not as demonstrated host-interface closure. A
+follow-on run must define explicit input/output delays for the assumed FPGA-SoC
+host, complete detailed routing, and rerun setup/hold repair and sign-off STA.
 
-----------------------------------------------------------------------------
-(B) Datapath ceiling -- placed-and-routed single lane (run tag M4_CSA_LANE)
-    lane_wrap = mac_array #(.NUM_MAC(1)) with carry-save accumulator
-----------------------------------------------------------------------------
+Supplementary routed single-lane characterization
+--------------------------------------------------
+Configuration: config_lane.json
+Run: M4_CSA_LANE
+Clock target: 4.0 ns (250 MHz)
+Status: detailed route complete, DRC/LVS clean
 
-Source: synth/lane_pnr_summary.rpt (extracted from the M4_CSA_LANE OpenLane run
-post-detailed-route STA stage; full run dir is gitignored due to size).
-Lane stdcell area: 13,128.8 um^2 (incl. timing-repair buffers, post-route).
-DRC clean, LVS clean. 56 IO pins. 134 sequential cells (flip-flops).
+  Corner                 Setup WNS     Estimated Fmax
+  nom_ff_n40C_1v95       +0.995 ns     ~333 MHz
+  nom_tt_025C_1v80       -0.653 ns     ~215 MHz
+  nom_ss_100C_1v60       -4.833 ns     ~113 MHz
 
-At the 4.0 ns (250 MHz) target, post-detailed-route STA:
-
-  Corner             Setup WNS     Achieved period   Achieved Fmax
-  nom_ff_n40C_1v95   +0.995 ns     ~3.00 ns          ~333 MHz   (meets 250 MHz)
-  nom_tt_025C_1v80   -0.653 ns     ~4.65 ns          ~215 MHz
-  nom_ss_100C_1v60   -4.833 ns     ~8.83 ns          ~113 MHz   (sign-off corner)
-
-  Hold WNS: +0.118 ns (ff), -0.005 ns (ss, single 5 ps path, in-reg input),
-            +0.195 ns (tt). All r2r hold paths positive.
+  Hold WNS: +0.118 ns (ff), -0.005 ns (ss), +0.195 ns (tt)
   No max-slew or max-cap violations.
 
-Worst setup path (`synth/lane_critical_path_ss.rpt`, extracted from
-`max_ss_100C_1v60/max.rpt`):
-  Startpoint: weight register `u_lane.lane[0].aw[0]` (Stage A weight latch)
-  Endpoint:   product register `u_lane.lane[0].bprod[*]` (Stage B 16-bit product)
-  Path:       8x8 signed multiplier (Booth-encoded array of nand2/nor2/a21o/
-              o211a/or4bb cells, ~25 logic levels), driving the bprod[*] flop.
+The routed lane's worst setup path is Stage-A weight register -> signed 8x8
+multiplier -> Stage-B product register. Carry-save accumulation removed the
+previous 32-bit accumulation-adder path. These lane frequencies characterize
+the datapath only and are not used as the final full-chiplet frequency.
 
-The critical path is now the 8x8 signed multiplier (Stage A -> Stage B). This
-confirms that the **carry-save accumulator successfully removed the 32-bit
-accumulate adder from the critical path**: that adder, which was the M3/early-M4
-limiter, no longer ranks in the violator list.
-
-Improvement vs. the pre-CSA lane:
-  Corner   pre-CSA Fmax    with CSA Fmax    Delta
-  ss       106 MHz         113 MHz          +6.6%
-  tt       202 MHz         215 MHz          +6.4%
-  ff       339 MHz         333 MHz          -1.8%   (within run-to-run noise)
-
-The slow-corner gain is modest because the residual critical path (8x8 multiply)
-is comparable in logic depth to the ripple-carry add at sky130, and at the slow
-corner all interconnect/buffer delays scale together. The next architectural
-move to reach 250 MHz at ss is to pipeline the multiplier (Booth split into
-two registered stages); see report Section 9.
-
-----------------------------------------------------------------------------
 Conclusion
-----------------------------------------------------------------------------
-
-* The datapath does NOT meet 250 MHz at the slow sign-off corner; it reaches
-  ~113 MHz (ss) / ~215 MHz (tt), and meets 250 MHz at the fast corner.
-* The 32-bit accumulate adder, which was the early-M4 limiter, has been
-  removed from the inner-loop critical path by the carry-save accumulator.
-* The full-array (accel_top) clock is bounded above by this datapath ceiling
-  and additionally reduced (~5%) by the banked broadcast buffer tree, which
-  is the cost of bringing pin count from 5,134 down to 137 and bringing
-  broadcast-net fanout from 5,881 sinks down to ~16 sinks per net.
+----------
+The final production chiplet does not close setup or hold timing at the
+available post-CTS snapshot. Its benchmark uses the setup-limited 114.536 MHz
+estimate. The separate lane run demonstrates that the multiplier is the
+remaining per-lane critical path; the full wrapper adds substantial
+weight-storage, clock-tree, shared-broadcast, and routing overhead.

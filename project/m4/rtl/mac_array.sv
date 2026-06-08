@@ -9,12 +9,14 @@
  *   NUM_MAC (default 128) MAC lanes that share one broadcast activation and
  *   each hold their own weight, so the array sustains NUM_MAC MACs per cycle.
  *
- *   This realizes the project's planned "128 INT8 MAC units @ 250 MHz, 64 GOPS"
- *   datapath. It maps directly to the dominant 3x3 INT8 convolution: each lane
+ *   This realizes the project's planned 128-lane parallel datapath. The final
+ *   full wrapper does not close the original 250 MHz target. The array maps to
+ *   the dominant 3x3 INT8 convolution: each lane
  *   computes one output channel, the broadcast activation is the shared input
  *   patch element, and the per-lane weight is that channel's filter tap. A full
- *   output pixel streams its K = Kh*Kw*Cin = 576 reduction elements through the
- *   array; the 128 lanes produce 128 output channels in parallel.
+ *   reduction tile streams through the array, and the 128 lanes produce 128
+ *   output-channel partials in parallel. Final `accel_top` uses 64-element
+ *   tiles; the host combines nine tiles for K = Kh*Kw*Cin = 576.
  *
  * Dataflow (output-stationary, weight-streaming):
  *   One reduction element per cycle is presented on the streaming inputs:
@@ -37,7 +39,7 @@
  *   two ACC_WIDTH registers (cs_sum, cs_carry) avoid a full carry-propagate
  *   add each cycle. The single carry-propagate add (sum + carry) is performed
  *   ONLY on the `last` tag, removing the 32-bit ripple-carry adder from the
- *   critical path of the inner loop. Expected to significantly raise Fmax.
+ *   critical path of the inner loop.
  *
  * Implementation note:
  *   The shared control pipeline (valid/first/last tags and the broadcast

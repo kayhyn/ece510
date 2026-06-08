@@ -7,16 +7,18 @@
  *   Realistic top-level accelerator wrapper for the 128-MAC INT8 convolution
  *   array. This wraps `mac_array` with on-chip weight storage (SRAM-style),
  *   an output result serializer, and narrow AXI4-Stream I/O ports (~140 pins
- *   instead of ~5,134), enabling full place-and-route in OpenLane.
+ *   instead of ~5,134), enabling the production OpenLane attempt to progress
+ *   through placement, CTS, and global routing.
  *
  *   Design improvements over the initial mac_array standalone synthesis:
  *     - Realistic I/O pin count via internal weight memory and result
  *       serializer. External ports are s_tdata[63:0] (input, opcode-tagged)
  *       and m_tdata[63:0] (output), plus handshake signals.
- *     - Banked broadcast fan-out tree. The shared activation and control
- *       signals (valid/first/last) are re-registered into BANK_COUNT banks
- *       of ~16 lanes each, limiting fan-out to ~16-17 sinks per net. This
- *       adds 1 cycle of latency but dramatically reduces worst-case delay.
+ *     - Registered broadcast staging. The source contains BANK_COUNT
+ *       registered copies, but mac_array has scalar shared activation/control
+ *       ports and therefore consumes only bank 0. Unused copies are eligible
+ *       for synthesis removal; the implemented design does not realize a true
+ *       per-bank fan-out tree.
  *     - Carry-save accumulation in mac_array removes the 32-bit ripple-carry
  *       adder from the inner-loop critical path.
  *
@@ -42,7 +44,9 @@
  *         m_tdata[62:56] = channel[6:0]
  *         m_tdata[55:24] = result[31:0] (signed INT32)
  *         m_tdata[23:0]  = 0 (pad)
- *     The 128 channel results drain sequentially, 1 per beat, after each pixel.
+ *     The 128 channel partial results drain sequentially, 1 per beat, after
+ *     each tile. With the synthesized L_MAX=64 configuration, the host waits
+ *     for each drain and accumulates nine tiles for a full L=576 reduction.
  *
  * Clocking and reset: single clock domain clk; synchronous active-high reset.
  */
@@ -52,7 +56,7 @@ module accel_top #(
     parameter int ACC_WIDTH    = 32,
     parameter int STREAM_WIDTH = 64,
     parameter int L_MAX        = 576,   // max reduction length (weight depth)
-    parameter int BANK_COUNT   = 8      // number of broadcast banks (128/8=16 lanes each)
+    parameter int BANK_COUNT   = 8      // attempted registered broadcast-copy count
 ) (
     input  logic                        clk,
     input  logic                        rst,
@@ -68,7 +72,7 @@ module accel_top #(
     output logic [STREAM_WIDTH-1:0]     m_tdata
 );
 
-    localparam int LANES_PER_BANK = NUM_MAC / BANK_COUNT;  // 16
+    localparam int LANES_PER_BANK = NUM_MAC / BANK_COUNT;  // attempted grouping; not functionally consumed
     localparam int ADDR_WIDTH     = $clog2(L_MAX);         // 10 bits for 576
     localparam int LANE_IDX_WIDTH = $clog2(NUM_MAC);       // 7 bits
 
@@ -117,10 +121,10 @@ module accel_top #(
     end
 
     // ========================================================================
-    // Banked broadcast fan-out tree
-    // One cycle of registered fan-out: activation + valid/first/last are
-    // re-registered into BANK_COUNT copies, each driving LANES_PER_BANK lanes.
-    // This limits fan-out to ~16 sinks per net instead of 128*N.
+    // Registered broadcast staging.
+    // BANK_COUNT copies were an attempted fan-out optimization. Because the
+    // downstream mac_array exposes scalar shared activation/control ports,
+    // only bank 0 connects functionally; unused copies may be optimized away.
     // ========================================================================
 
     // Pre-bank (global) signals from the input decode
@@ -151,7 +155,7 @@ module accel_top #(
         end
     end
 
-    // Per-bank registered copies (limits fan-out to ~16 lanes per net)
+    // Attempted per-bank registered copies; only bank 0 is consumed below.
     logic                         bank_valid  [BANK_COUNT];
     logic                         bank_first  [BANK_COUNT];
     logic                         bank_last   [BANK_COUNT];
@@ -177,9 +181,9 @@ module accel_top #(
     endgenerate
 
     // ========================================================================
-    // MAC array with banked inputs
+    // MAC array with scalar shared broadcast inputs
     // The mac_array's internal pipeline is 3 stages (A: capture, B: multiply,
-    // C: CSA accumulate). The banked broadcast adds 2 cycles of latency before
+    // C: CSA accumulate). The registered broadcast path adds 2 cycles before
     // the array (pre-bank + per-bank registers), for a total of 5 stages from
     // input to output.
     // ========================================================================

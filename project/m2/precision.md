@@ -47,23 +47,25 @@ python3 project/m2/tools/precision_analysis.py
 ```
 
 The script writes the measured values to
-`project/m2/sim/precision_analysis.json`. It evaluates 1000 deterministic
-9-tap dot-product samples using seed 510. These are numerical analysis vectors,
+`project/m2/sim/precision_analysis.json`. The final committed run evaluates
+1000 deterministic **576-tap** dot-product samples using seed 510, matching the
+final full reduction length. These are numerical analysis vectors,
 not a labeled object-detection validation dataset, so no classification
 accuracy delta is reported. The FP32 reference is computed from the unquantized
 real-valued inputs. The INT8 path quantizes activations and weights, accumulates
 the INT8 products in INT32, then dequantizes the accumulator by `bias_scale`.
 
-Results from the committed run:
+Results from the committed final-workload run:
 
 ```text
 samples                         = 1000
-mean_absolute_error             = 0.004511093255132437
-max_absolute_error              = 0.017759695649147034
-rms_error                       = 0.005570434033870697
-p95_absolute_error              = 0.010876733064651487
-mean_abs_fp32_reference         = 0.8312984108924866
-relative_mae_vs_mean_abs_ref    = 0.005426562856882811
+taps_per_sample                 = 576
+mean_absolute_error             = 0.03604705631732941
+max_absolute_error              = 0.1503361463546753
+rms_error                       = 0.04476138949394226
+p95_absolute_error              = 0.08744357861578461
+mean_abs_fp32_reference         = 6.390651226043701
+relative_mae_vs_mean_abs_ref    = 0.005640591960400343
 ```
 
 The first five sample records, including FP32 reference, INT32 accumulator,
@@ -72,10 +74,9 @@ the aggregate numbers can be spot-checked without rerunning the script.
 
 ## Acceptability
 
-The observed mean absolute error is about 0.54% of the mean absolute FP32
-reference magnitude, and the maximum absolute error across 1000 samples is
-0.0178 on an input range scaled to roughly [-1, 1]. For this M2 RTL milestone,
-that is acceptable because the compute core is intended to validate the
-integer datapath, handshake timing, and accumulation behavior rather than final
-model accuracy. A final accelerator should still be checked against a real
-YOLO-nano calibration or validation set before claiming task-level accuracy.
+The final 576-tap experiment measures quantization error over the complete
+reduction length implemented by nine hardware tiles. It supports the selected
+INT8/INT32 arithmetic for this project's numerical workload, while still not
+constituting task-level YOLO accuracy evidence. A production accelerator should
+be checked against a trained model and labeled validation set before claiming
+task-level accuracy.

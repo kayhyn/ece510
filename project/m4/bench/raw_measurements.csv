@@ -1,0 +1,32 @@
+source_group,measurement,value,traceability
+simulation,representative_pixels,8,tb_top.sv parameter
+simulation,weight_load_beats,73728,final_run.log
+simulation,compute_beats,4608,final_run.log
+simulation,drain_beats,9216,final_run.log
+simulation,backpressure_cycles,3,final_run.log; protocol test excluded from unstalled projection
+simulation,unstalled_schedule_cycles,87985,final_run.log
+extrapolation,output_pixels,2704,target workload
+extrapolation,weight_load_beats,73728,9*128*64
+extrapolation,compute_beats,1557504,9*2704*64
+extrapolation,drain_beats,3115008,9*2704*128
+extrapolation,pipeline_protocol_gap_cycles,146017,6*9*2704+1
+extrapolation,layer_cycles,4892257,sum of extrapolated categories
+timing,clock_target_ns,6.0,config.json
+timing,typical_setup_wns_ns,-2.730896475141717,accel_postcts_wns.rpt
+timing,setup_limited_period_ns,8.730896475141718,target minus WNS
+timing,setup_limited_frequency_MHz,114.53577566142981,projection; not timing-closed
+m1_software,runtime_run_01_ms,164.1,sw_baseline.md
+m1_software,runtime_run_02_ms,164.5,sw_baseline.md
+m1_software,runtime_run_03_ms,155.6,sw_baseline.md
+m1_software,runtime_run_04_ms,164.3,sw_baseline.md
+m1_software,runtime_run_05_ms,171.8,sw_baseline.md
+m1_software,runtime_run_06_ms,161.3,sw_baseline.md
+m1_software,runtime_run_07_ms,163.0,sw_baseline.md
+m1_software,runtime_run_08_ms,151.0,sw_baseline.md
+m1_software,runtime_run_09_ms,149.0,sw_baseline.md
+m1_software,runtime_run_10_ms,150.5,sw_baseline.md
+m1_software,runtime_run_11_ms,160.7,sw_baseline.md
+m1_software,runtime_run_12_ms,163.8,sw_baseline.md
+m1_software,runtime_run_13_ms,144.6,sw_baseline.md
+m1_software,runtime_run_14_ms,160.9,sw_baseline.md
+m1_software,runtime_run_15_ms,150.6,sw_baseline.md

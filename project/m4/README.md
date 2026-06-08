@@ -1,218 +1,205 @@
-# Milestone 4 Deliverables -- 128-MAC INT8 Convolution Accelerator
+# Milestone 4 Final: Tiled 128-MAC INT8 Convolution-Reduction Chiplet
 
-M4 is the complete, synthesizable, verified, and benchmarked deliverable for the
-project's **128-MAC INT8 array** that accelerates the dominant 3x3 convolution of
-YOLO-nano. The compute core scales the M2/M3 single 9-tap dot-product lane up to
-128 parallel lanes with a 3-stage pipeline and a carry-save accumulator; it is
-wrapped (`accel_top`) with on-chip per-lane weight memory, a banked broadcast
-fan-out tree, and a result serializer so that the full design routes through
-OpenLane 2 on sky130 HD with a realistic ~140-pin top-level. The design is
-verified cycle-accurately end-to-end through both a bus-natural testbench
-(`tb_top`) and the production AXI4-Stream testbench (`tb_accel_top`), and
-benchmarked against the M1 software baseline.
+This package contains the final coherent M4 design. The production chiplet is
+`rtl/accel_top.sv` synthesized with `L_MAX=64`: a narrow 64-bit AXI4-Stream
+interface, 128 INT8 MAC lanes, per-lane 64-entry weight storage, a registered
+broadcast stage, and serialized INT32 partial results. A host executes nine
+64-element tiles and accumulates the returned partials to reconstruct the target
+576-element convolution reduction.
 
-**Start here:** the design justification report is
-[`report/design_justification.pdf`](report/design_justification.pdf) (9 sections,
-~3,500 words). The measured headline: the array sustains **127.861 of 128
-MAC/cycle (99.89%)** with **0 functional errors**, giving an **11.68x
-(sign-off, 113 MHz) to 22.18x (typical, 215 MHz)** speedup over the 160.9 ms
-M1 baseline. The placed single lane is **DRC/LVS clean post-detailed-route**
-on OpenLane 2 sky130 HD (`M4_CSA_LANE`) -- this is the load-bearing PnR
-sign-off. The production `accel_top` wrapper elaborates through yosys and
-completes through global routing with **zero overflow on every metal
-layer**; detailed routing exceeded this host's 16 GB memory budget (see
-report Section 9 item 5), so the deepest clean `accel_top` snapshot is
-post-CTS / post-global-route (`M4_ACCEL2`, `synth/accel_postcts_*`).
+The required final testbench matches the synthesized configuration and passes
+with zero tile-partial and full-result errors. Combining its measured production
+cycle schedule with the setup-limited full-wrapper post-CTS projection of
+114.536 MHz gives **9.335 GFLOP/s**, **42.714 ms/layer**, and **3.77x projected
+chiplet-schedule speedup** over the M1 160.9 ms baseline. The M4 estimate
+excludes host-side sliding-window and output processing. The full wrapper does
+not close timing and detailed routing did not complete; those failures are
+documented rather than presented as sign-off.
 
-## Diff from M3 (what changed)
+Start with [`report/design_justification.pdf`](report/design_justification.pdf)
+and [`bench/benchmark.md`](bench/benchmark.md).
 
-- Compute scaled from **1 lane -> 128 lanes** (`rtl/mac_array.sv`), 3-stage
-  pipelined, output-stationary/weight-streaming with `valid/first/last`
-  streaming control (removes the M3 ~0.9 MAC/cycle restart bubble).
-- Accumulator changed from a per-cycle 32-bit ripple-carry add to a
-  **carry-save** running (sum, carry) pair with a single full add only on
-  `last` -- removes the 32-bit adder carry chain from the inner-loop critical
-  path.
-- Production top wrapper `accel_top` adds **on-chip weight memory** (128
-  per-lane single-port banks), a **banked broadcast tree** (8 banks of 16
-  lanes -- limits any net to ~16 sinks), and a **result serializer** (one
-  channel per beat on a 64-bit AXI4-Stream output). Top-level pin count drops
-  from a bare-array 5,134 to **137**, enabling full PnR.
-- Interface widened from a **single-word AXI4-Stream command port**
-  (M2/M3 `axis_interface`) to a **narrow 64-bit opcode-tagged AXI4-Stream
-  port** (`rtl/accel_top.sv`); the bus-natural wide-bus `stream_if` in
-  `rtl/interface.sv` is retained as the unit-level test interface.
+## Final-design consistency
 
-## File Catalog
+- **Verified design:** `accel_top`, 128 lanes, `L_MAX=64`, nine host-managed
+  tiles per full reduction.
+- **Synthesized design:** the same `accel_top` configuration in
+  `synth/config_accel.json`.
+- **Benchmarked design:** the same production transaction schedule, including
+  weight loading, serializer drains, stalls, and protocol gaps.
+- **Development-only RTL:** `top.sv`, `compute_core.sv`, and `interface.sv`
+  preserve the earlier wide unit-level integration but are not used for final
+  production measurements.
 
-Every file in `project/m4/`, with the checklist deliverable / report section it
-supports.
+## Diff from M3
+
+M3 integrated one unpipelined nine-tap lane behind a command interface. M4
+replaces that final production path with `accel_top`: 128 three-stage
+carry-save lanes, private 64-entry weight banks, a registered
+activation/control broadcast stage, a narrow opcode-tagged AXI4-Stream port, and a 128-channel
+result serializer. M4 also changes full-reduction execution to nine
+host-managed 64-element tiles because the synthesized inferred weight storage
+could not practically hold all 576 entries per lane.
+
+## Complete file catalog
+
+Every committed file under `project/m4/` is listed below.
 
 ### Top level
-- `README.md` -- this catalog (Deliverable 1, M4 folder README).
-- `synthesis_notes.md` -- narrative synthesis/verification notes (supports
-  report Sections 7 & 9; supplementary).
-- `next_steps.md` -- earlier hardening brief (historical; the items in it are
-  now implemented as the production `accel_top` and the carry-save accumulator).
 
-### `rtl/` -- final source code (Deliverable 2; report Section 4)
-- `rtl/accel_top.sv` -- **the production top wrapper synthesized for full PnR**:
-  narrow AXI4-Stream + 128 per-lane weight banks + banked broadcast tree +
-  result serializer + 128-lane `mac_array` instance.
-- `rtl/mac_array.sv` -- **the 128-lane MAC compute core** with the 3-stage
-  pipeline and the carry-save accumulator. Authoritative; instantiated by both
-  `accel_top` and `top`.
-- `rtl/top.sv` -- thinner unit-test wrapper: wires the bus-natural
-  `stream_if` to `compute_core` (verified by `tb/tb_top.sv`).
-- `rtl/compute_core.sv` -- named compute core; transparent wrapper that
-  instantiates `mac_array` (no added logic).
-- `rtl/interface.sv` -- `stream_if`, the wide-bus AXI4-Stream test interface
-  used by `tb_top`.
+- `README.md` -- final package scope, catalog, and reproduction instructions
+  (README deliverable).
 
-### `tb/` -- final testbenches (Deliverable 2)
-- `tb/tb_top.sv` -- **bus-natural end-to-end testbench**: drives `top`
-  end-to-end through `stream_if`, checks all 1,024 results vs. an independent
-  reference, measures sustained MAC/cycle. Produces `sim/final_run.log`
-  (report Section 6).
-- `tb/tb_accel_top.sv` -- **production end-to-end testbench**: drives
-  `accel_top` through the narrow 64-bit AXI4-Stream port (weight-load
-  phase + compute phase + serialized drain). Produces
-  `sim/final_accel_run.log`.
-- `tb/tb_mac_array.sv` -- supplementary core-only testbench that drives
-  `mac_array` directly (produces `sim/cosim_run.log`; 127.916 MAC/cycle).
+### Final RTL
 
-### `sim/` -- final simulation outputs (Deliverable 2)
-- `sim/final_run.log` -- **final simulation log showing PASS** (0 errors,
-  127.861 MAC/cycle) from `tb/tb_top.sv`.
-- `sim/final_accel_run.log` -- production-wrapper end-to-end log (0 errors,
-  128.000 MAC/cycle in the compute phase) from `tb/tb_accel_top.sv`.
-- `sim/final_waveform.png` -- **annotated end-to-end waveform** (report Fig. 4).
-- `sim/final_top.vcd` -- VCD from the final run (source for the waveform).
-- `sim/cosim_run.log` -- supplementary core-only run log (from `tb_mac_array`).
+- `rtl/accel_top.sv` -- production AXI4-Stream chiplet synthesized and
+  benchmarked (source-code deliverable; report Sections 4-5).
+- `rtl/mac_array.sv` -- shared 128-lane INT8 carry-save MAC array instantiated
+  by production `accel_top` (source-code deliverable; Sections 3-4).
+- `rtl/top.sv` -- earlier wide unit-level integration wrapper retained as
+  supplementary development source (Section 6 history).
+- `rtl/compute_core.sv` -- transparent development wrapper around `mac_array`
+  (Section 6 history).
+- `rtl/interface.sv` -- earlier wide AXI4-Stream-style unit interface
+  (Section 6 history).
 
-### `synth/` -- final synthesis results (Deliverable 3; report Section 7)
-- `synth/config_accel.json` -- **OpenLane 2 config for `accel_top`**: full PnR
-  on sky130 HD at a 6 ns target clock, `L_MAX=64` for the educational sky130
-  inferred-register-file flow.
-- `synth/config_lane.json`, `synth/lane_wrap.sv` -- single-lane config/wrapper
-  used to obtain the real placed datapath Fmax with the carry-save accumulator
-  (timing_report.txt section B).
-- `synth/openlane_accel.log` -- **OpenLane run log** for `accel_top` (run tag
-  `M4_ACCEL`).
-- `synth/openlane_lane.log` -- OpenLane log for the placed single lane
-  (`M4_LANE`, prior; the new CSA lane run is `M4_CSA_LANE` under
-  `synth/runs/`).
-- `synth/timing_report.txt` -- **timing report**: per-corner setup/hold WNS,
-  critical path, closing frequency (113/215/333 MHz with CSA).
-- `synth/area_report.txt` -- **area report**: lane stdcell count and area,
-  128x extrapolation, dominant contributor.
-- `synth/power_report.txt` -- **power report**: per-corner post-PnR per-lane
-  power, naive 128x array extrapolation, full-array PnR numbers.
-- `synth/config.json` -- earlier bare-`mac_array` config (kept for the
-  historical 5,134-pin floorplan attempt referenced in report Section 9).
-- `synth/openlane_run.log`, `synth/openlane_pnr.log` -- earlier OpenLane logs
-  for the bare-array attempts (historical).
-- `synth/synth_area.ys`, `synth/yosys_stat.txt`, `synth/mac_array.netlist.v` --
-  standalone yosys area cross-check script, stats, and netlist.
-- `synth/lane_pnr_summary.rpt` -- post-detailed-route STA summary (per-corner
-  WNS/TNS/hold table) extracted from the M4_CSA_LANE OpenLane run.
-- `synth/lane_metrics.json` -- filtered post-PnR design metrics (area, cell
-  counts by class, IO count, per-corner timing, antenna/DRC/LVS).
-- `synth/lane_yosys_stat.rpt` -- full mapped cell breakdown by sky130 cell.
-- `synth/lane_power_{tt,ss,ff}.rpt` -- per-corner OpenROAD post-PnR power.
-- `synth/lane_critical_path_ss.rpt` -- the worst setup path in the slow corner
-  (the multiplier path), copied from `max_ss_100C_1v60/max.rpt`.
-- Full OpenLane run directories (`synth/runs/M4_CSA_LANE/`, `synth/runs/M4_ACCEL/`)
-  are gitignored due to size (168 MB and ~4 GB respectively); the key reports
-  above are the committed evidence.
+### Final verification
 
-### `bench/` -- hardware vs. software benchmark (Deliverable 4; report Section 8)
-- `bench/benchmark.md` -- measured throughput, speedup vs. M1, energy estimate,
-  method, and full traceability table.
-- `bench/benchmark_data.csv` -- **raw measurement data** behind every reported
-  number (per-corner frequency, time, throughput, speedup, power, energy).
-- `bench/roofline_final.png` -- **final roofline**: target hardware roofline +
-  M1 software baseline point + **measured** M4 accelerator points (report Fig. 1).
+- `tb/tb_top.sv` -- required final self-contained production testbench:
+  `L_MAX=64`, nine-tile execution, serialized responses, and host full-result
+  reconstruction (verification deliverable; Section 6).
+- `sim/final_run.log` -- final production simulation log showing PASS, raw
+  cycle categories, and an exercised output-backpressure stall (verification
+  and benchmark deliverables; Sections 6 and 8).
+- `sim/final_top.vcd` -- VCD generated by the final production testbench
+  (waveform source; Section 6).
+- `sim/final_waveform.png` -- annotated production compute-and-serialize
+  waveform (waveform deliverable; Figure 4).
 
-### `report/` -- design justification report (Deliverable 5)
-- `report/design_justification.pdf` -- **the 9-section report** (the deliverable).
-- `report/design_justification.md` -- markdown source (starting point, not the
-  deliverable; kept for reproducibility).
-- `report/figures/fig1_roofline.png` -- Fig. 1, roofline (Section 2/8).
-- `report/figures/fig2_block_diagram.png` -- Fig. 2, block diagram (Section 4).
-- `report/figures/fig3_dataflow.png` -- Fig. 3, dataflow diagram (Section 4).
-- `report/figures/fig4_waveform.png` -- Fig. 4, annotated waveform (Section 6).
+### Final synthesis evidence
 
-### `tools/` -- regeneration scripts (reproducibility)
-- `tools/generate_waveform.py` -- regenerates `sim/final_waveform.png` from the VCD.
-- `tools/benchmark.py` -- recomputes `bench/benchmark_data.csv` and renders
-  `bench/roofline_final.png` from the measured cycle count + synthesis numbers.
-- `tools/figures.py` -- renders the block/dataflow diagrams and assembles
-  `report/figures/`.
+- `synth/config.json` -- required exact-path final production OpenLane
+  configuration: `accel_top`, `L_MAX=64`, 6.0 ns target (synthesis deliverable;
+  Section 7).
+- `synth/config_accel.json` -- duplicate descriptively named copy of the exact
+  final production configuration (supplementary Section 7 evidence).
+- `synth/openlane_run.log` -- exact final `M4_ACCEL2` production OpenLane log;
+  records progress through global routing and detailed-routing failure
+  (synthesis deliverable; Sections 7 and 9).
+- `synth/timing_report.txt` -- full-wrapper post-CTS timing plus routed
+  single-lane characterization (timing deliverable; Section 7).
+- `synth/area_report.txt` -- full-wrapper post-CTS area and lane cross-check
+  (area deliverable; Section 7).
+- `synth/power_report.txt` -- full-wrapper and lane power estimates with
+  limitations (power deliverable; Section 7).
+- `synth/accel_postcts_wns.rpt` -- raw full-wrapper post-CTS setup WNS used for
+  the final 114.536 MHz setup-limited projection (Sections 7-8).
+- `synth/accel_postcts_tns.rpt` -- raw full-wrapper post-CTS setup TNS
+  (Section 7).
+- `synth/accel_postcts_power.rpt` -- raw full-wrapper 1.018 W post-CTS power
+  estimate (Sections 7-8).
+- `synth/accel_postcts_state.json` -- filtered full-wrapper post-CTS area and
+  cell metrics (Section 7).
+- `synth/accel_postcts_checks.rpt` -- full-wrapper post-CTS checker output
+  (Section 7).
+- `synth/config_lane.json` -- OpenLane configuration for the supplementary
+  fully routed single-lane characterization (Section 7).
+- `synth/lane_wrap.sv` -- single-lane characterization wrapper (Section 7).
+- `synth/openlane_lane.log` -- completed single-lane OpenLane run log
+  (Section 7).
+- `synth/lane_pnr_summary.rpt` -- routed single-lane per-corner timing summary
+  (Section 7).
+- `synth/lane_metrics.json` -- routed single-lane physical metrics (Section 7).
+- `synth/lane_critical_path_ss.rpt` -- raw single-lane slow-corner multiplier
+  critical path (Sections 7 and 9).
+- `synth/lane_yosys_stat.rpt` -- mapped single-lane cell breakdown (Section 7).
+- `synth/lane_power_tt.rpt` -- raw single-lane typical-corner power
+  (supplementary Section 7 evidence).
+- `synth/lane_power_ss.rpt` -- raw single-lane slow-corner power
+  (supplementary Section 7 evidence).
+- `synth/lane_power_ff.rpt` -- raw single-lane fast-corner power
+  (supplementary Section 7 evidence).
+- `synth/config_bare_array.json` -- historical bare-array OpenLane
+  configuration that exposed 5,134 pins (Section 9).
+- `synth/openlane_pnr.log` -- historical bare-array PnR log showing the pin
+  failure (Section 9).
+- `synth/synth_area.ys` -- historical standalone Yosys area script
+  (supplementary Section 7 evidence).
+- `synth/yosys_stat.txt` -- historical bare-array Yosys statistics
+  (supplementary Section 7 evidence).
+- `synth/mac_array.netlist.v` -- historical synthesized bare-array netlist
+  (supplementary source evidence).
+
+### Final benchmark
+
+- `bench/benchmark.md` -- final production throughput, interface analysis,
+  speedup, energy estimate, and traceability (benchmark deliverable; Sections
+  2, 5, and 8).
+- `bench/benchmark_data.csv` -- summary and derived final benchmark row and M1 comparison
+  (benchmark deliverable; Section 8).
+- `bench/raw_measurements.csv` -- raw M1 timings, simulation cycle categories,
+  extrapolation inputs, and timing-projection inputs (benchmark deliverable;
+  Section 8).
+- `bench/roofline_final.png` -- final roofline with algorithmic and
+  implemented-interface arithmetic intensity and cycle-measured,
+  timing-projected production point
+  (roofline deliverable; Figure 1).
+
+### Design report
+
+- `report/design_justification.pdf` -- required final nine-section design
+  justification report (report deliverable).
+- `report/design_justification.md` -- report source retained for
+  reproducibility.
+- `report/figures/fig1_roofline.png` -- report Figure 1, final roofline.
+- `report/figures/fig2_block_diagram.png` -- report Figure 2, production
+  architecture.
+- `report/figures/fig3_dataflow.png` -- report Figure 3, tiled dataflow.
+- `report/figures/fig4_waveform.png` -- report Figure 4, production waveform.
+
+### Reproduction tools
+
+- `tools/benchmark.py` -- regenerates final raw benchmark data and roofline from
+  the validated production transaction schedule.
+- `tools/generate_waveform.py` -- regenerates the annotated production waveform
+  from `sim/final_top.vcd`.
+- `tools/figures.py` -- regenerates architecture/dataflow figures and assembles
+  report figures.
 
 ## Reproduction
 
-### Co-simulation (Icarus Verilog 11/12)
+### Final production simulation
 
 ```sh
-# Bus-natural testbench (produces final_run.log + waveform VCD).
-iverilog -g2012 -Wall -o /tmp/top_tb.vvp \
-  project/m4/rtl/mac_array.sv project/m4/rtl/compute_core.sv \
-  project/m4/rtl/interface.sv project/m4/rtl/top.sv \
-  project/m4/tb/tb_top.sv
-vvp /tmp/top_tb.vvp > project/m4/sim/final_run.log 2>&1
-python3 project/m4/tools/generate_waveform.py     # -> sim/final_waveform.png
-
-# Production AXI4-Stream end-to-end (weight load + compute + drain).
-iverilog -g2012 -Wall -o /tmp/accel_tb.vvp \
+iverilog -g2012 -Wall -o /tmp/m4_final.vvp \
   project/m4/rtl/mac_array.sv project/m4/rtl/accel_top.sv \
-  project/m4/tb/tb_accel_top.sv
-vvp /tmp/accel_tb.vvp > project/m4/sim/final_accel_run.log 2>&1
+  project/m4/tb/tb_top.sv
+vvp /tmp/m4_final.vvp > project/m4/sim/final_run.log
 ```
 
-Expected: `final_run.log` reports `pixels_captured=8 errors=0`,
-`sustained_macs_per_cycle=127.861`, `PASS: m4 128-MAC array end-to-end`;
-`final_accel_run.log` reports `errors=0`,
-`sustained_macs_per_compute_cycle=128.000`,
-`PASS: accel_top 128-MAC with weight mem + serializer`.
+Expected final line:
 
-### Benchmark + report figures
+```text
+PASS: final synthesized-config accel_top tiled 576-element reduction
+```
+
+### Benchmark, figures, and report
 
 ```sh
-python3 project/m4/tools/benchmark.py    # -> bench/benchmark_data.csv, roofline_final.png
-python3 project/m4/tools/figures.py      # -> report/figures/*.png
-( cd project/m4/report && pandoc design_justification.md \
-    -o design_justification.pdf --pdf-engine=xelatex )
+python3 project/m4/tools/benchmark.py
+python3 project/m4/tools/generate_waveform.py
+python3 project/m4/tools/figures.py
+(cd project/m4/report && pandoc design_justification.md \
+  -o design_justification.pdf --pdf-engine=xelatex)
 ```
 
-### Synthesis (OpenLane 2, sky130 HD)
-
-A container engine is required (this run used colima + the OpenLane 2 image):
+### Final production synthesis
 
 ```sh
-# Production top -- full PnR.
-docker run --rm \
-  -v "$PWD":/work -v "$HOME/.volare":/root/.volare -e PDK_ROOT=/root/.volare \
-  -w /work ghcr.io/efabless/openlane2:2.3.10 \
-  openlane --run-tag M4_ACCEL --overwrite \
-  /work/project/m4/synth/config_accel.json
-
-# Single placed lane -- datapath Fmax with carry-save accumulator.
-docker run --rm \
-  -v "$PWD":/work -v "$HOME/.volare":/root/.volare -e PDK_ROOT=/root/.volare \
-  -w /work ghcr.io/efabless/openlane2:2.3.10 \
-  openlane --run-tag M4_CSA_LANE --overwrite \
-  /work/project/m4/synth/config_lane.json
+openlane --run-tag M4_ACCEL2 --overwrite project/m4/synth/config.json
 ```
 
-Expected: `Flow complete.` on the lane run (`M4_CSA_LANE`), with the placed
-lane DRC/LVS clean at 13,129 um^2 / 2,498 stdcells and per-corner post-PnR
-Fmax 113 MHz (ss) / 215 MHz (tt) / 333 MHz (ff). The accel_top run on a
-16 GB host reaches post-CTS / post-global-route (zero overflow on every
-metal layer) but does not complete detailed routing -- TritonRoute's track
-assignment exceeds the host memory budget; see report Section 9 item 5.
-The committed `synth/accel_postcts_*` files are the deepest clean accel_top
-snapshot (558,792 cells, 5.01 mm^2 stdcell area, WNS -2.73 ns at tt for the
-6.0 ns target). See `synth/timing_report.txt` for the full timing story
-(the 32-bit adder is no longer the limiter after CSA; the multiplier is
-the new critical path).
+The committed run reaches post-CTS and global routing with zero overflow, then
+fails during detailed-routing track assignment. The exact failure is preserved
+in `synth/openlane_run.log`; the benchmark uses the deepest available
+full-wrapper post-CTS timing and power reports.

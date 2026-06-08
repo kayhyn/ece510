@@ -4,7 +4,7 @@
  * Module: compute_core
  *
  * Purpose:
- *   Named compute core of the M4 accelerator. The compute core is the project's
+ *   Development-only transparent wrapper around the project's
  *   128-MAC INT8 array (`mac_array`); this module is the thin, parameterized
  *   boundary that `top` instantiates so the integration hierarchy matches the
  *   M2/M3 lineage (interface + compute core + top). It adds no logic of its own
@@ -12,9 +12,9 @@
  *   to `mac_array`, so the synthesized/benchmarked datapath is exactly the array
  *   reported in project/m4/synth/.
  *
- *   The standalone OpenLane 2 synthesis run (project/m4/synth/config.json)
- *   targets `mac_array` directly; this wrapper exists for the integrated
- *   top-level simulation and for naming clarity, and is logically transparent.
+ *   The final OpenLane 2 production run targets `accel_top`, which instantiates
+ *   `mac_array` directly. This wrapper is retained as development history and
+ *   is not used by the final synthesis, verification, or benchmark.
  *
  * Clocking and reset: single clock domain clk; synchronous active-high reset.
  */

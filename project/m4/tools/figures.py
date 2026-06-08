@@ -38,30 +38,31 @@ def block_diagram():
     ax.axis("off")
 
     box(ax, 0.2, 3.0, 1.7, 1.2, "Host\n(FPGA SoC\nARM core)", "#eef3fb")
-    box(ax, 2.6, 2.6, 2.2, 2.0, "stream_if\n(AXI4-Stream)\ninput regs +\noutput holding reg", "#fdf2e0")
+    box(ax, 2.4, 2.4, 2.5, 2.4, "accel_top\n64-bit AXI4-Stream\nopcode decoder +\nresult serializer", "#fdf2e0")
 
     # Compute core box containing lanes.
     box(ax, 5.6, 0.6, 5.9, 5.9, "", "#f2faf2", ec="#2a8")
-    ax.text(8.55, 6.15, "compute_core  ->  mac_array  (128 lanes, output-stationary)",
+    ax.text(8.55, 6.15, "64-tap tiled production chiplet (128 lanes, output-stationary)",
             ha="center", fontsize=10, weight="bold")
-    lane_text = "lane i: capture | 8x8 mul | 32b accumulate"
     for k, yy in enumerate([4.8, 3.9, 3.0]):
-        box(ax, 6.0, yy, 5.1, 0.7, lane_text.replace("i", str(k)), "#ffffff", fs=8)
+        box(ax, 6.0, yy, 5.1, 0.7,
+            f"lane {k}: 64xINT8 weights | 8x8 mul | INT32 CSA",
+            "#ffffff", fs=8)
     ax.text(8.55, 2.5, ". . .  (128 lanes total)", ha="center", fontsize=9)
-    box(ax, 6.0, 1.0, 5.1, 0.7, "shared control pipeline: valid / first / last tags + broadcast activation",
+    box(ax, 6.0, 1.0, 5.1, 0.7, "registered broadcast + 128-channel partial-result buffer",
         "#eaf6ff", fs=8)
 
-    arrow(ax, 1.9, 3.8, 2.6, 3.8, "cmds")
-    arrow(ax, 4.8, 4.15, 6.0, 4.15, "activation (bcast)\n+128 weights\nvalid/first/last")
+    arrow(ax, 1.9, 3.8, 2.4, 3.8, "64b load/compute")
+    arrow(ax, 4.9, 4.15, 6.0, 4.15, "activation +\nweight-bank reads")
     # results return arrow (compute core -> interface)
-    ax.add_patch(FancyArrowPatch((6.0, 1.35), (4.8, 3.1), arrowstyle="-|>",
+    ax.add_patch(FancyArrowPatch((6.0, 1.35), (4.9, 3.1), arrowstyle="-|>",
                                  mutation_scale=14, color="#b5651d", lw=1.5,
                                  connectionstyle="arc3,rad=-0.25"))
-    ax.text(5.0, 2.0, "results\n(128 x INT32)", ha="center", fontsize=8, color="#b5651d")
-    arrow(ax, 2.6, 3.0, 1.9, 3.0, "resp")
+    ax.text(5.0, 2.0, "128 partials\nserialized", ha="center", fontsize=8, color="#b5651d")
+    arrow(ax, 2.4, 3.0, 1.9, 3.0, "64b partials")
 
-    ax.set_title("Figure 2. M4 accelerator block diagram: host -> AXI4-Stream "
-                 "interface -> 128-lane MAC compute core", fontsize=11)
+    ax.set_title("Figure 2. Final production architecture: host-managed nine-tile "
+                 "reduction through synthesized accel_top", fontsize=11)
     fig.tight_layout()
     fig.savefig(FIGS / "fig2_block_diagram.png", dpi=150)
     plt.close(fig)
@@ -73,13 +74,13 @@ def dataflow_diagram():
     ax.set_ylim(0, 7)
     ax.axis("off")
 
-    ax.text(6, 6.6, "Output-stationary, weight-streaming dataflow "
-            "(one reduction element / cycle)", ha="center", fontsize=11, weight="bold")
+    ax.text(6, 6.6, "Output-stationary 64-element tile dataflow "
+            "(nine tiles per full reduction)", ha="center", fontsize=11, weight="bold")
 
     # Time axis of streamed reduction elements.
     for t in range(6):
         box(ax, 0.5 + t * 1.15, 5.2, 1.0, 0.6, f"x[{t}]", "#eef3fb", fs=8)
-    ax.text(7.4, 5.5, "...  L=576", fontsize=9, va="center")
+    ax.text(7.4, 5.5, "...  TILE_L=64", fontsize=9, va="center")
     ax.text(0.5, 6.0, "broadcast activation stream (shared by all lanes):", fontsize=8.5)
 
     # Lanes holding stationary accumulators, each with its own weight.
@@ -98,12 +99,12 @@ def dataflow_diagram():
             ha="center", fontsize=9)
 
     ax.text(9.4, 3.0,
-            "first -> clear acc\nlast  -> emit result\n\nWeights stream in per\ncycle; partial sums\nstay resident (stationary)\nin each lane until 'last'.",
+            "first -> clear tile acc\nlast  -> emit partial\n\n128 partials serialize.\nHost adds nine tile\npartials to reconstruct\nthe full L=576 result.",
             fontsize=8.5, va="center",
             bbox=dict(boxstyle="round", fc="#eaf6ff", ec="#88a"))
 
-    ax.set_title("Figure 3. Output-stationary dataflow: activations broadcast, "
-                 "weights stream, accumulators stay resident", fontsize=11)
+    ax.set_title("Figure 3. Tiled output-stationary dataflow: 64-element chiplet "
+                 "partials, nine-way host accumulation", fontsize=11)
     fig.tight_layout()
     fig.savefig(FIGS / "fig3_dataflow.png", dpi=150)
     plt.close(fig)
