@@ -12,27 +12,18 @@ fontsize: 11pt
 This project accelerates the multiply-accumulate reduction at the center of a
 representative 3x3 INT8 convolution from YOLO-nano. The selected layer has a
 52x52x64 input, 128 output channels, and a reduction length of
-3x3x64 = 576 for every output pixel and channel. It performs 199,360,512 MACs,
-or 398,721,024 operations when one multiply and one add are counted separately.
+3x3x64 = 576 per output pixel and channel: 199,360,512 MACs
+(398,721,024 FLOPs).
 
-The choice is grounded in the M1 software experiment. In the profiled
-representative-layer program, `conv3x3_int8_vectorized` consumed 2.275 seconds
-of 2.379 seconds across 15 calls, or 95.6% of that program's runtime. The M1
-NumPy im2col-plus-matrix-multiply implementation ran the layer in a median
-160.9 ms and achieved 2.478 GFLOP/s. This is the comparison point required by
-the project specification. It is not a claim that every complete YOLO-nano
-implementation spends exactly 95.6% of its time in this one layer; it shows
-that the selected dense reduction is a suitable, measurable acceleration
-target.
+In M1 profiling, `conv3x3_int8_vectorized` consumed 2.275 of 2.379 seconds
+across 15 calls (95.6%). The NumPy im2col-plus-GEMM implementation ran the
+layer in a median 160.9 ms at 2.478 GFLOP/s. This is the M4 comparison point.
 
-The final deliverable is a co-processor chiplet for that reduction, not a
-complete object-detection system and not a complete sliding-window convolution
-front end. A host supplies activation-reduction elements, loads weights, and
-accumulates returned tile partials. The chiplet implements the expensive
-parallel INT8 products and INT32 reductions behind a standard streaming
-interface. This partition is appropriate for the project goal because it
-produces a synthesizable, interface-connected accelerator whose implementation
-tradeoffs and transaction schedule can be measured against the M1 target.
+The chiplet accelerates the reduction kernel only. A host supplies activation
+elements, loads weights, accumulates returned tile partials, and handles
+sliding-window generation, padding, and output conversion. This partition is
+what makes the design synthesizable, interface-connected, and measurable
+against the M1 baseline.
 
 # 2. Roofline analysis
 
@@ -44,29 +35,21 @@ weights, and final output once:
   = 672.497 FLOP/byte
 ```
 
-At this ideal-reuse level the convolution is compute-bound on both the M1 Pro
-reference roofline and the original proposed accelerator roofline. This
-analysis motivated a parallel MAC array and INT8 arithmetic: when useful
-performance is limited by arithmetic throughput, spending area on many small
-multipliers is more valuable than widening an already sufficient external
-memory path.
+At this AI the convolution is compute-bound on both the M1 Pro reference and
+the originally proposed accelerator. This motivated a parallel INT8 MAC array:
+at this intensity, multiplier count is the lever, not external bandwidth.
 
-The implemented production chiplet does not achieve the ideal-reuse traffic
-model. The synthesized weight banks contain 64 entries per lane, so a full
-576-element reduction requires nine tiles. Each 64-element tile returns 128
-INT32 channel partials over a serialized 64-bit stream. For one layer, the
-implemented transaction schedule contains 73,728 weight-load beats, 1,557,504
-compute-input beats, and 3,115,008 output beats. At eight bytes per beat this is
-37,969,920 stream bytes, giving an **implemented-interface arithmetic
-intensity of 10.501 FLOP/byte**.
+The implemented chiplet does not achieve ideal reuse. Weight banks hold 64
+entries per lane, so a 576-element reduction needs nine tiles, and each tile
+returns 128 INT32 channel partials over a 64-bit serialized stream. Per layer
+the transaction schedule is 73,728 weight-load beats, 1,557,504 compute beats,
+and 3,115,008 output beats — 37,969,920 stream bytes at 8 bytes/beat — for an
+**implemented-interface arithmetic intensity of 10.501 FLOP/byte**.
 
-This distinction changes the final bottleneck. The mathematical kernel remains
-compute-bound under ideal on-chip reuse, but the synthesized chiplet is mainly
-interface/serialization-bound. At the setup-limited projected frequency of
-114.536 MHz, one 64-bit stream direction has a rated bandwidth of 0.916 GB/s;
-the final transaction schedule requires about 0.889 GB/s of aggregate
-serialized traffic. Figure 1 plots both arithmetic-intensity values and the
-cycle-measured, timing-projected production point.
+The kernel is compute-bound under ideal on-chip reuse; the implemented chiplet
+is serialization-bound. At the projected 114.536 MHz one 64-bit stream
+direction is rated 0.916 GB/s and the schedule needs 0.889 GB/s. Figure 1
+shows both AI points and the projected production point.
 
 ![Final roofline. The M1 algorithmic point assumes ideal reuse at 672.5 FLOP/byte. The synthesized tiled chiplet operates at 10.5 FLOP/byte because it transports tile commands and serialized partial sums; combining measured cycles with the setup-limited post-CTS projection gives 9.335 GFLOP/s.](figures/fig1_roofline.png){width=88%}
 
@@ -78,23 +61,19 @@ is sign-extended before accumulation. INT32 is sufficient for a full
 576-element reduction: even the conservative magnitude bound
 576 x 16,384 is below 10 million, well within signed 32-bit range.
 
-INT8 was selected because the target is an edge-oriented dense convolution and
-because it allows substantially more multipliers per area than FP32. The final
-precision study tested 1,000 deterministic 576-tap reductions against an FP32
-reference, matching the complete reduction reconstructed from nine hardware
-tiles. It measured mean absolute error 0.0360, RMS error 0.0448, maximum
-absolute error 0.1503, and relative mean absolute error of 0.564% against the
-mean reference magnitude. These results establish that the quantized arithmetic
-is numerically reasonable for the final reduction workload. They do not establish
-task-level YOLO accuracy; that would require a trained quantized model and a
-labeled validation set.
+INT8 was selected for area-per-multiplier on an edge target. The precision
+study ran 1,000 deterministic 576-tap reductions against an FP32 reference,
+matching the full reduction reconstructed from nine hardware tiles: mean
+absolute error 0.0360, RMS error 0.0448, max 0.1503, relative MAE 0.564%.
+Sufficient for the reduction kernel; task-level YOLO accuracy needs a trained
+quantized model and is out of scope.
 
-Within each lane, the running partial sum is represented in carry-save form as
-two 32-bit registers. The inner loop computes a bitwise three-input XOR and
-majority function instead of propagating a carry through a 32-bit adder every
-cycle. A single carry-propagate addition resolves the result on the tile's
-`last` element. Carry-save representation changes timing and area, but it is
-bit-exact relative to ordinary INT32 addition for the tested reductions.
+Each lane represents its running partial sum in carry-save form as two 32-bit
+registers. The inner loop computes a three-input XOR and a majority function
+bitwise instead of propagating a carry through a 32-bit adder every cycle. A
+single carry-propagate add resolves the result on the tile's `last` element.
+Carry-save is bit-exact relative to ordinary INT32 addition for the tested
+reductions.
 
 # 4. Dataflow and architecture
 
@@ -121,17 +100,13 @@ four necessary chiplet functions:
 3. A registered activation/control broadcast stage.
 4. A result buffer and serializer that returns one channel partial per beat.
 
-The final scope is intentionally a **64-element tiled reduction chiplet**.
-Nine invocations reconstruct the full 576-element convolution reduction, with
-the host adding each returned INT32 partial inline as its serialized beat
-arrives. The final testbench models this one-add-per-output-beat host behavior,
-so it adds no cycles beyond the already counted drain stream. Host software
-orchestration, sliding-window generation, padding, and final output conversion
-outside the stream schedule are not measured. The chiplet does not implement
-line buffers, sliding-window generation, padding, or final activation
-quantization. Those functions remain with the host. This is narrower than the
-original architectural target, but it is the design represented consistently
-by final simulation, synthesis, and benchmark evidence.
+The final scope is a **64-element tiled reduction chiplet**. Nine invocations
+reconstruct the full 576-element reduction; the host adds each returned INT32
+partial inline as its serialized beat arrives, which the testbench models
+(no extra cycles beyond the drain stream). Sliding-window generation, padding,
+line buffers, and output quantization remain with the host. This is narrower
+than the M1 target but is the design represented consistently across final
+simulation, synthesis, and benchmark.
 
 ![Production architecture. The host loads one 64-weight tile per lane, streams 64 activation elements per output pixel, receives 128 serialized partials, and accumulates nine tiles for the full reduction.](figures/fig2_block_diagram.png){width=92%}
 
@@ -139,46 +114,41 @@ by final simulation, synthesis, and benchmark evidence.
 
 # 5. Hardware interface
 
-The chiplet exposes a 64-bit AXI4-Stream-style input and output using the
-standard `TVALID`, `TREADY`, and `TDATA` handshake. AXI4-Stream is appropriate
-for the assumed FPGA-SoC host because it is a published AMBA streaming
-protocol, naturally transports ordered commands and results, and could connect
-to host DMA or control logic without changing the chiplet protocol.
+The chiplet exposes 64-bit AXI4-Stream input and output (`TVALID`/`TREADY`/
+`TDATA`). AXI4-Stream is a published AMBA streaming protocol that connects
+naturally to host DMA or control logic on the assumed FPGA-SoC, with no
+chiplet-side change.
 
 Input opcode `0x01` loads one signed INT8 weight into a selected lane and
-address. Opcode `0x02` carries a broadcast activation plus `first` and `last`
-tags for a compute tile. The output returns a seven-bit channel index and one
-signed INT32 partial sum per beat. The testbench exercises complete weight
-write, compute, and response transactions exclusively through these ports.
+address. Opcode `0x02` carries a broadcast activation plus `first`/`last`
+tags. The output returns a 7-bit channel index and one signed INT32 partial
+per beat. The testbench drives complete weight, compute, and response
+transactions exclusively through these ports.
 
-The interface is functionally correct but is the dominant final performance
-limitation. The serializer requires 128 output beats after every 64 compute
-beats. `accel_top` has one result buffer and deasserts input `TREADY` while
-draining, so the host must wait for a tile result before allowing another tile
-result to arrive. The production testbench enforces this supported protocol.
-The result path therefore consumes more cycles than the compute path.
+The interface is functionally correct but is the dominant performance limit.
+The serializer needs 128 output beats after every 64 compute beats, and
+`accel_top` has one result buffer (input `TREADY` drops while draining), so
+each tile must drain before the next can issue. The result path therefore
+costs more cycles than the compute path.
 
-M1's original bandwidth conclusion assumed a full on-chip 576-entry weight
-store and ideal feature-map reuse. That architecture would not be
-interface-bound. The implemented 64-entry tiled design is different, and the
-final benchmark reports the resulting interface-bound behavior rather than
-reusing the M1 assumption.
+M1's bandwidth conclusion assumed a full 576-entry on-chip weight store and
+ideal feature-map reuse; that design would not be interface-bound. The
+implemented 64-entry tiled design is, and the benchmark reports it.
 
 # 6. Verification
 
-The final required testbench is `tb/tb_top.sv`. It instantiates `accel_top`
-with the same key parameter used by synthesis, `L_MAX=64`, and drives only the
-narrow production AXI4-Stream interface. It builds deterministic signed INT8
-activations and weights for eight output pixels and computes two independent
-references: every 64-element tile partial and every full 576-element result.
-The first pixel and first channel deliberately use alternating `127` and
-`-128` operands, exercising full-scale INT8 inputs and a large-magnitude
-carry-save accumulation; the remaining vectors provide varied signed values.
+The final testbench `tb/tb_top.sv` instantiates `accel_top` at the synthesized
+`L_MAX=64` and drives only the production AXI4-Stream ports. It builds
+deterministic signed INT8 activations and weights for eight pixels and
+computes two independent references: every 64-element tile partial and every
+full 576-element result. Pixel 0, channel 0 uses alternating `127`/`-128`
+operands to exercise full-scale INT8 and large-magnitude carry-save
+accumulation; the other vectors provide varied signed values.
 
-For each of nine tiles, the testbench loads 128 x 64 weights, streams each
+For each of nine tiles the testbench loads 128 x 64 weights, streams each
 pixel's 64 activation elements, receives 128 serialized channel partials, and
-adds those partials into a host-side accumulator. It checks 9,216 tile partials
-and 1,024 reconstructed full results. The committed final log reports:
+adds them into a host-side accumulator. It checks 9,216 tile partials and
+1,024 reconstructed full results. The committed log reports:
 
 ```text
 partial_errors=0 full_errors=0
@@ -190,64 +160,52 @@ PASS: final synthesized-config accel_top tiled 576-element reduction
 
 The test deliberately deasserts output `TREADY` for three cycles and still
 passes every ordering and value check. The 87,985-cycle unstalled schedule,
-rather than the injected protocol-test stall, is used for layer extrapolation.
-The low MAC/cycle value in this short verification run includes loading all
-73,728 weights but amortizes them over only eight pixels. The full-layer
-benchmark amortizes the same weight load over 2,704 pixels. More importantly,
-the test validates the exact transaction categories used by the benchmark:
-weight loads, compute beats, serialized drains, and protocol gaps. Figure 4
-shows a compute tile entering the array and the resulting partial entering the
-serializer.
+not the injected stall, is used for layer extrapolation. The 6.7 MAC/cycle
+figure in this short run amortizes 73,728 weight beats over 8 pixels; the
+full-layer benchmark amortizes them over 2,704. The test validates the four
+cycle categories the benchmark extrapolates from: weight loads, compute beats,
+serialized drains, and protocol gaps. Figure 4 shows a compute tile entering
+the array and its partial result entering the serializer.
 
 ![Annotated production waveform showing a 64-tap tile entering accel_top and its 128-channel partial result beginning serialized output.](figures/fig4_waveform.png){width=95%}
 
-Earlier M2 and M3 tests remain useful developmental evidence for the individual
-MAC arithmetic and initial interface integration. The final M4 pass condition,
-however, is based on the synthesized production configuration.
-
 # 7. Synthesis results
 
-Synthesis used OpenLane 2 v2.3.10 with the sky130A
-`sky130_fd_sc_hd` standard-cell library. The final production configuration is
-`synth/config.json`: `accel_top`, 128 lanes, `L_MAX=64`, a 6.0 ns target,
-and a 3.3 mm by 3.3 mm die. This is the configuration matched by final
-verification and benchmarking.
+Synthesis: OpenLane 2 v2.3.10, sky130A / `sky130_fd_sc_hd`. The final
+configuration `synth/config.json` is `accel_top`, 128 lanes, `L_MAX=64`,
+6.0 ns target, 3.3 mm x 3.3 mm die.
 
-The full production wrapper completed synthesis, floorplanning, placement,
-clock-tree synthesis, post-CTS timing repair, and global routing. The deepest
-available snapshot contains 558,792 standard cells and 5.015 mm2 of standard-cell
-area. The dominant contributors are the inferred weight-register banks,
-128 multipliers and carry-save accumulators, clock tree, and timing-repair
-buffers. The 65,536 required weight bits alone account for at least 77.17% of
-the design's 84,927 sequential cells; the 70,646 timing-repair buffers account
-for 12.64% of all post-CTS cells. Global routing reached zero overflow on every
-metal layer.
+The wrapper completed synthesis, floorplanning, placement, CTS, post-CTS
+timing repair, and global routing. The deepest snapshot contains 558,792
+standard cells and 5.015 mm^2 of cell area. Dominant contributors: inferred
+weight-register banks, 128 multipliers and carry-save accumulators, clock
+tree, timing-repair buffers. The 65,536 weight bits alone account for at
+least 77.17% of the design's 84,927 sequential cells; the 70,646
+timing-repair buffers are 12.64% of all post-CTS cells. Global routing
+reached zero overflow on every metal layer.
 
-At the post-CTS typical corner, the 6.0 ns target has setup WNS of
--2.730896 ns. The resulting setup-limited projected period is 8.730896 ns, or
-**114.536 MHz**. This full-wrapper number is used in the final benchmark.
-The same snapshot has -1.852060 ns hold WNS and 32,070 reported hold
-violations, although register-to-register hold worst slack is positive
-0.197419 ns with zero register-to-register hold violations. It also has two
-max-slew violations and one max-capacitance violation. Detailed routing and
-final timing repair did not complete, so these remain unresolved; 114.536 MHz
-is a setup-limited estimate, not sign-off timing, and no slow-corner
-full-wrapper frequency is claimed.
+At the post-CTS typical corner, the 6.0 ns target has setup WNS -2.730896 ns
+— a setup-limited projected period of 8.730896 ns, or **114.536 MHz**. The
+same snapshot has -1.852060 ns hold WNS and 32,070 reported hold violations,
+but register-to-register hold worst slack is +0.197419 ns with zero
+violations. There are two max-slew and one max-capacitance violations.
+Detailed routing and final timing repair did not complete, so these are
+unresolved; 114.536 MHz is a setup-limited estimate, not sign-off, and no
+slow-corner wrapper frequency is claimed.
 
-The full-wrapper worst setup path starts at a result-path flip-flop, passes
-through fanout buffers and serializer mux/output logic, and ends at
-`m_tdata[26]`, with -2.730896 ns slack. The production interface, rather than
-the per-lane multiplier, is therefore the final full-wrapper timing limiter.
-The run also used OpenLane's generic fallback SDC because no explicit
-`PNR_SDC_FILE` or `SIGNOFF_SDC_FILE` was supplied. A follow-on run must define
-host-specific input/output delays, complete detailed routing, and rerun
-setup/hold repair before claiming interface timing closure.
+The worst setup path starts at a result-path flip-flop, runs through fanout
+buffers and serializer mux/output logic, and ends at `m_tdata[26]` (-2.730896
+ns slack). The interface, not the per-lane multiplier, is the wrapper timing
+limiter. The run used OpenLane's generic fallback SDC because no
+`PNR_SDC_FILE` or `SIGNOFF_SDC_FILE` was supplied. A follow-on run needs an
+explicit host-interface SDC, completed detailed routing, and rerun setup/hold
+repair before interface timing closure is claimed.
 
-The full-wrapper post-CTS power estimate is **1.018 W** at the typical corner
-with default switching activity. Sequential logic and clock distribution
-dominate. This estimate is pre-detailed-route and not activity-annotated, so it
-is used only as an approximate energy result. It was analyzed under the 6.0 ns
-target constraint and is not scaled to the slower setup-limited frequency.
+Post-CTS power estimate: **1.018 W** at the typical corner with default
+switching activity, dominated by sequential logic and clock distribution.
+Pre-detailed-route and not workload-annotated. Analyzed at the 6.0 ns target
+rather than the slower setup-limited frequency. Used as an approximate energy
+result only.
 
 # 8. Benchmark results
 
@@ -262,28 +220,20 @@ measured by `tb_top.sv`. One layer requires:
 = 4,892,257 total cycles
 ```
 
-This is **40.750 useful MACs per total chiplet cycle**. Combining that measured
-cycle schedule with the setup-limited full-wrapper post-CTS projection of
-114.536 MHz gives 42.714 ms and **9.335 GFLOP/s**. Against the required M1
-median of 160.9 ms and 2.478 GFLOP/s, this is a **3.77x projected speedup** for
-the same useful convolution FLOP count. However, it is an optimistic
-chiplet-schedule comparison: M1 includes NumPy im2col/padding and output
-processing, while M4 excludes host orchestration, sliding-window generation,
-padding, and final output conversion. Because of that scope difference and
-because the full wrapper does not close timing, this is not a demonstrated
-end-to-end operating point.
+**40.750 useful MACs per total chiplet cycle**. At the projected 114.536 MHz
+this is 42.714 ms and **9.335 GFLOP/s** — a **3.77x projected speedup** over
+the M1 median (160.9 ms, 2.478 GFLOP/s) for the same FLOP count. M1 includes
+im2col/padding/output and M4 excludes host orchestration; the wrapper does
+not close timing. So this is a chiplet-schedule projection, not a
+demonstrated end-to-end operating point.
 
-Combining the full-wrapper power estimate with the projected runtime gives
-approximately 43.483 mJ per layer and 9.17 GFLOP/s/W. This is an arithmetic
-estimate, not a demonstrated operating point. No software energy improvement
-ratio is claimed because the M1 CPU baseline did not include a measured power
-value.
+Power estimate x projected runtime gives 43.483 mJ/layer and 9.17 GFLOP/s/W.
+Arithmetic estimate only. No software energy ratio is claimed because the M1
+CPU baseline did not include a measured power value.
 
-The original theoretical target was 64 GFLOP/s at 250 MHz. The final gap is
-not caused by arithmetic correctness. It comes from the lower full-wrapper
-frequency projection, nine-way tiling required by the synthesized weight
-capacity, and serialized tile-partial output. These observed limitations are
-reflected in the final roofline.
+M1 targeted 64 GFLOP/s at 250 MHz. The gap is the lower wrapper frequency
+projection, nine-way tiling forced by 64-entry weight banks, and serialized
+tile-partial output. Figure 1 reflects these.
 
 # 9. What did not work
 
@@ -335,9 +285,8 @@ default activity and lacks final routed parasitics. A stronger follow-on would
 complete detailed routing and replay the production testbench with VCD or SAIF
 activity.
 
-The final design is narrower and slower than proposed in M1, but it is a
-coherent engineering result: the same 64-tap production chiplet is verified,
-synthesized, analyzed, and benchmarked; it correctly reconstructs the target
-576-element reduction. Its cycle schedule supports a projected kernel
-advantage, but timing closure and an end-to-end host benchmark remain required
-before claiming demonstrated acceleration.
+The design is narrower and slower than M1's target but is coherent: the same
+64-tap chiplet is verified, synthesized, analyzed, and benchmarked, and
+reconstructs the 576-element reduction. The projected kernel advantage is
+real; timing closure and an end-to-end host benchmark would be needed to call
+it demonstrated.
