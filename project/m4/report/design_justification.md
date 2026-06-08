@@ -31,8 +31,8 @@ front end. A host supplies activation-reduction elements, loads weights, and
 accumulates returned tile partials. The chiplet implements the expensive
 parallel INT8 products and INT32 reductions behind a standard streaming
 interface. This partition is appropriate for the project goal because it
-produces a synthesizable, interface-connected accelerator that measurably
-improves the same kernel used in M1.
+produces a synthesizable, interface-connected accelerator whose implementation
+tradeoffs and transaction schedule can be measured against the M1 target.
 
 # 2. Roofline analysis
 
@@ -62,13 +62,11 @@ intensity of 10.501 FLOP/byte**.
 
 This distinction changes the final bottleneck. The mathematical kernel remains
 compute-bound under ideal on-chip reuse, but the synthesized chiplet is mainly
-interface/serialization-bound. At the full-wrapper post-CTS frequency of
+interface/serialization-bound. At the setup-limited projected frequency of
 114.536 MHz, one 64-bit stream direction has a rated bandwidth of 0.916 GB/s;
 the final transaction schedule requires about 0.889 GB/s of aggregate
 serialized traffic. Figure 1 plots both arithmetic-intensity values and the
-cycle-measured, timing-projected production point. The final result therefore demonstrates why the
-project specification requires the interface to be analyzed as part of the
-accelerator rather than as an afterthought.
+cycle-measured, timing-projected production point.
 
 ![Final roofline. The M1 algorithmic point assumes ideal reuse at 672.5 FLOP/byte. The synthesized tiled chiplet operates at 10.5 FLOP/byte because it transports tile commands and serialized partial sums; combining measured cycles with the setup-limited post-CTS projection gives 9.335 GFLOP/s.](figures/fig1_roofline.png){width=88%}
 
@@ -173,6 +171,9 @@ with the same key parameter used by synthesis, `L_MAX=64`, and drives only the
 narrow production AXI4-Stream interface. It builds deterministic signed INT8
 activations and weights for eight output pixels and computes two independent
 references: every 64-element tile partial and every full 576-element result.
+The first pixel and first channel deliberately use alternating `127` and
+`-128` operands, exercising full-scale INT8 inputs and a large-magnitude
+carry-save accumulation; the remaining vectors provide varied signed values.
 
 For each of nine tiles, the testbench loads 128 x 64 weights, streams each
 pixel's 64 activation elements, receives 128 serialized channel partials, and
@@ -246,14 +247,7 @@ The full-wrapper post-CTS power estimate is **1.018 W** at the typical corner
 with default switching activity. Sequential logic and clock distribution
 dominate. This estimate is pre-detailed-route and not activity-annotated, so it
 is used only as an approximate energy result. It was analyzed under the 6.0 ns
-target constraint and is not scaled to the slower setup-limited frequency, so
-the reported energy estimate is conservative.
-
-A separate single-lane experiment completed detailed routing and DRC/LVS
-checks. It reached approximately 113 MHz slow, 215 MHz typical, and 333 MHz
-fast. That experiment establishes the carry-save lane's datapath behavior and
-shows that the multiplier is the lane critical path. It is not used as the
-frequency of the final 128-lane production chiplet.
+target constraint and is not scaled to the slower setup-limited frequency.
 
 # 8. Benchmark results
 
@@ -279,15 +273,17 @@ padding, and final output conversion. Because of that scope difference and
 because the full wrapper does not close timing, this is not a demonstrated
 end-to-end operating point.
 
-The full-wrapper power estimate gives approximately 43.483 mJ per layer and
-9.17 GFLOP/s/W. No software energy improvement ratio is claimed because the M1
-CPU baseline did not include a measured power value.
+Combining the full-wrapper power estimate with the projected runtime gives
+approximately 43.483 mJ per layer and 9.17 GFLOP/s/W. This is an arithmetic
+estimate, not a demonstrated operating point. No software energy improvement
+ratio is claimed because the M1 CPU baseline did not include a measured power
+value.
 
 The original theoretical target was 64 GFLOP/s at 250 MHz. The final gap is
 not caused by arithmetic correctness. It comes from the lower full-wrapper
 frequency projection, nine-way tiling required by the synthesized weight
-capacity, and serialized tile-partial output. These observed limitations are reflected in
-the final roofline rather than hidden behind the compute-core utilization.
+capacity, and serialized tile-partial output. These observed limitations are
+reflected in the final roofline.
 
 # 9. What did not work
 
@@ -315,14 +311,15 @@ fan-out tree. A real banking fix requires splitting `mac_array` into banked
 instances or changing its interface so each lane group consumes its own
 registered copy.
 
-The third major failure was timing closure. Carry-save accumulation successfully
-moved the lane critical path away from the 32-bit accumulation adder, but the
-8x8 signed multiplier became the new limiter. The full wrapper was slower still
-because of its weight storage, shared broadcast network, clock distribution, and
-routing. It also retains unresolved non-register-to-register hold, slew, and
-capacitance violations at the final snapshot. Pipelining the multiplier would
-improve the lane, while completed timing repair and hierarchical physical
-design would better address the full array. I would also provide an explicit
+The third major failure was timing closure. In the separate routed-lane
+experiment, carry-save accumulation moved the critical path away from the
+32-bit accumulation adder and exposed the 8x8 signed multiplier as the new lane
+limiter. The full wrapper was slower still because of its weight storage,
+shared broadcast network, clock distribution, and routing. It also retains
+unresolved non-register-to-register hold, slew, and capacitance violations at
+the final snapshot. Pipelining the multiplier would improve the lane, while
+completed timing repair and hierarchical physical design would better address
+the full array. I would also provide an explicit
 host-interface SDC instead of the generic fallback so input/output timing and
 the serializer critical path are constrained against the assumed FPGA-SoC.
 

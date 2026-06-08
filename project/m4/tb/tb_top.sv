@@ -77,11 +77,17 @@ module tb_top;
         begin
             for (p = 0; p < N_PIX; p = p + 1)
                 for (j = 0; j < FULL_L; j = j + 1)
-                    act_mem[p][j] = (((p*3 + j) % 5) - 2);
+                    if (p == 0)
+                        act_mem[p][j] = (j % 2 == 0) ? 127 : -128;
+                    else
+                        act_mem[p][j] = (((p*3 + j) % 5) - 2);
 
             for (c = 0; c < NUM_MAC; c = c + 1)
                 for (j = 0; j < FULL_L; j = j + 1)
-                    w_mem[c][j] = (((c + j) % 7) - 3);
+                    if (c == 0)
+                        w_mem[c][j] = (j % 2 == 0) ? -128 : 127;
+                    else
+                        w_mem[c][j] = (((c + j) % 7) - 3);
 
             for (p = 0; p < N_PIX; p = p + 1)
                 for (c = 0; c < NUM_MAC; c = c + 1) begin

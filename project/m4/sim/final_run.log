@@ -9,4 +9,4 @@ M4 FINAL PRODUCTION TILED BENCH ---------------------------
   backpressure_cycles=3 backpressure_errors=0 unstalled_schedule_cycles=87985
   useful_macs_per_total_cycle=6.703
 PASS: final synthesized-config accel_top tiled 576-element reduction
-project/m4/tb/tb_top.sv:284: $finish called at 879930000 (1ps)
+project/m4/tb/tb_top.sv:290: $finish called at 879930000 (1ps)

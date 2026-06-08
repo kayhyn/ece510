@@ -39,8 +39,8 @@ Limitations
 * Default switching activity is used; the production tiled workload was not
   applied through SAIF/VCD power annotation.
 * Power was analyzed under the 6.0 ns target constraint, while benchmark
-  runtime uses the slower 114.536 MHz setup-limited projection. Multiplying
-  1.018 W by that runtime is therefore a conservative, unscaled estimate.
+  runtime uses the slower 114.536 MHz setup-limited projection. The resulting
+  energy is therefore an unscaled arithmetic estimate.
 * This is an estimate, not a measured wall-plug result.
 
 Supplementary routed single-lane estimates

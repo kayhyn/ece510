@@ -28,9 +28,9 @@
  *       LOAD_WEIGHT:
  *         s_tdata[63:56] = 0x01 (opcode)
  *         s_tdata[55:49] = lane[6:0]
- *         s_tdata[48:40] = addr[8:0]  (reduction element index, 0..575)
- *         s_tdata[39:32] = weight[7:0] (signed INT8)
- *         s_tdata[31:0]  = (unused)
+ *         s_tdata[48:39] = addr[9:0]   (tile-local reduction index)
+ *         s_tdata[38:31] = weight[7:0] (signed INT8)
+ *         s_tdata[30:0]  = (unused)
  *       COMPUTE:
  *         s_tdata[63:56] = 0x02 (opcode)
  *         s_tdata[55]    = first (start new accumulation)
@@ -91,7 +91,7 @@ module accel_top #(
     // Weight load decode -- non-overlapping bit fields
     logic [LANE_IDX_WIDTH-1:0]     wl_lane;   // 7 bits: [55:49]
     logic [ADDR_WIDTH-1:0]         wl_addr;   // 10 bits: but we only use 9 since L_MAX=576 needs 10
-    logic signed [DATA_WIDTH-1:0]  wl_data;   // 8 bits: [39:32]
+    logic signed [DATA_WIDTH-1:0]  wl_data;   // 8 bits: [38:31]
 
     assign wl_lane = s_tdata[55:49];
     assign wl_addr = s_tdata[48:39];  // 10 bits: 0..575

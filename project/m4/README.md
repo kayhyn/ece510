@@ -67,7 +67,8 @@ Every committed file under `project/m4/` is listed below.
 
 - `tb/tb_top.sv` -- required final self-contained production testbench:
   `L_MAX=64`, nine-tile execution, serialized responses, and host full-result
-  reconstruction (verification deliverable; Section 6).
+  reconstruction, including full-scale INT8 extrema and output backpressure
+  (verification deliverable; Section 6).
 - `sim/final_run.log` -- final production simulation log showing PASS, raw
   cycle categories, and an exercised output-backpressure stall (verification
   and benchmark deliverables; Sections 6 and 8).

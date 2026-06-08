@@ -138,8 +138,8 @@ efficiency   = 9.335 GFLOP/s / 1.018 W = 9.17 GFLOP/s/W
 
 This is an estimate, not a measured wall-plug result. It is pre-detailed-route
 and not workload-annotated. The 1.018 W report was analyzed under the 6.0 ns
-target constraint rather than scaled to the slower setup-limited frequency, so
-the multiplication above is conservative. No software energy ratio is claimed
+target constraint rather than scaled to the slower setup-limited frequency.
+No software energy ratio is claimed
 because M1 CPU power was not measured.
 
 ## Gap from the original target
