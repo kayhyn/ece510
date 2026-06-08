@@ -1,6 +1,23 @@
 `timescale 1ns/1ps
 
 /*
+ * STATUS: development history. Not the M4 production design.
+ *
+ *   Production top      : project/m4/rtl/accel_top.sv  (+ mac_array.sv)
+ *   Production testbench: project/m4/tb/tb_top.sv      (drives accel_top)
+ *   Production synth    : project/m4/synth/config.json (sources accel_top.sv
+ *                                                       and mac_array.sv only)
+ *
+ *   The final production AXI4-Stream interface is implemented inside
+ *   accel_top: a narrow 64-bit opcode-tagged input plus a 128-channel result
+ *   serializer. This file (module name stream_if) is the earlier wide
+ *   one-beat-per-element development interface from the M2/M3 lineage and is
+ *   retained as supplementary source only. It is not exercised by final
+ *   verification, synthesis, or benchmark. See project/m4/README.md for the
+ *   development-vs-production source split.
+ *
+ * --------------------------------------------------------------------------
+ *
  * Module: stream_if
  *
  * Purpose:

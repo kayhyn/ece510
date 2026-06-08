@@ -1,6 +1,21 @@
 `timescale 1ns/1ps
 
 /*
+ * STATUS: development history. Not the M4 production design.
+ *
+ *   Production top      : project/m4/rtl/accel_top.sv  (+ mac_array.sv)
+ *   Production testbench: project/m4/tb/tb_top.sv      (drives accel_top)
+ *   Production synth    : project/m4/synth/config.json (sources accel_top.sv
+ *                                                       and mac_array.sv only)
+ *
+ *   This wrapper is retained as supplementary development source for the
+ *   M2/M3 integration lineage. The final OpenLane 2 production run targets
+ *   accel_top, which instantiates mac_array directly without going through
+ *   this wrapper. See project/m4/README.md for the development-vs-production
+ *   source split.
+ *
+ * --------------------------------------------------------------------------
+ *
  * Module: compute_core
  *
  * Purpose:
