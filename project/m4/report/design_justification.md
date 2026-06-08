@@ -228,8 +228,24 @@ not close timing. So this is a chiplet-schedule projection, not a
 demonstrated end-to-end operating point.
 
 Power estimate x projected runtime gives 43.483 mJ/layer and 9.17 GFLOP/s/W.
-Arithmetic estimate only. No software energy ratio is claimed because the M1
-CPU baseline did not include a measured power value.
+Arithmetic estimate only. The M1 Pro package power was not measured during
+the M1 runs, so the software-side energy is estimated from published M1 Pro
+power figures. Apple's M1 Pro performance-per-watt positioning and
+independent reviews (AnandTech, October 2021) report sustained CPU package
+power around 30 W under heavy multi-core load. The NumPy baseline runs
+effectively single-threaded at 1.2% of peak, so a realistic single-core
+attribution is closer to 10 W. Both brackets versus the chiplet's 43.483
+mJ/layer:
+
+```text
+upper bound: 30 W x 160.9 ms = 4,827 mJ -> ~111x energy ratio
+realistic:   10 W x 160.9 ms = 1,609 mJ ->  ~37x energy ratio
+```
+
+Neither value is measured wall-plug energy; both are arithmetic estimates
+from published CPU power figures and the post-CTS HW estimate. The
+breakdown is in `bench/benchmark.md` and the raw inputs are in
+`raw_measurements.csv`.
 
 M1 targeted 64 GFLOP/s at 250 MHz. The gap is the lower wrapper frequency
 projection, nine-way tiling forced by 64-entry weight banks, and serialized

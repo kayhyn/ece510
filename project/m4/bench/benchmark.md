@@ -129,7 +129,7 @@ cycle-measured, timing-projected production point.
 ## Energy estimate
 
 The full `accel_top` post-CTS power report gives **1.018 W** at the typical
-corner with default switching activity. Multiplying by the corrected runtime:
+corner with default switching activity. Multiplying by the projected runtime:
 
 ```text
 energy/layer = 1.018 W x 42.714 ms = 43.483 mJ
@@ -139,8 +139,42 @@ efficiency   = 9.335 GFLOP/s / 1.018 W = 9.17 GFLOP/s/W
 This is an estimate, not a measured wall-plug result. It is pre-detailed-route
 and not workload-annotated. The 1.018 W report was analyzed under the 6.0 ns
 target constraint rather than scaled to the slower setup-limited frequency.
-No software energy ratio is claimed
-because M1 CPU power was not measured.
+
+### Comparison to M1 Pro software baseline
+
+The M1 Pro package power was not measured during the M1 baseline runs.
+Published reviews of the Apple M1 Pro report sustained CPU package power of
+approximately 30 W under heavy multi-core compute load (AnandTech's M1 Pro
+SoC analysis, October 2021), and Apple's own M1 Pro launch
+performance-per-watt positioning places peak CPU performance at the same
+envelope. The NumPy `conv3x3_int8_vectorized` baseline runs effectively
+single-threaded through Apple Accelerate / NEON and reaches only 1.2% of
+peak FLOP/s, so attributing the full 30 W package power to the kernel is a
+loose upper bound. Per-performance-core power under load is closer to
+5-8 W; combined with idle-package overhead a realistic active envelope is
+about 10 W.
+
+Both brackets:
+
+```text
+upper-bound (30 W package, full sustained CPU load)
+  M1 software energy/layer  = 30 W x 160.9 ms = 4,827.0 mJ
+  upper-bound energy ratio  = 4,827.0 / 43.483 = ~111x
+
+realistic (10 W single-core attribution at 1.2% peak)
+  M1 software energy/layer  = 10 W x 160.9 ms = 1,609.0 mJ
+  realistic energy ratio    = 1,609.0 / 43.483 = ~37x
+```
+
+The CSV reports the realistic 10 W attribution as the primary M1 baseline
+energy estimate; the 30 W upper bound is documented in `raw_measurements.csv`
+as a published-power upper bound. Neither value is measured wall-plug energy;
+both are arithmetic estimates derived from published CPU power figures
+combined with the measured M1 runtime and the post-CTS HW power estimate.
+The HW side carries the same caveats noted above (default switching activity,
+pre-detailed-route, analyzed at 6.0 ns rather than the slower projected
+frequency). Either bracket favors the chiplet substantially, but the
+comparison should be read as estimate-vs-estimate, not measurement.
 
 ## Gap from the original target
 

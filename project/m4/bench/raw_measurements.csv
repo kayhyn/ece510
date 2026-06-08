@@ -30,3 +30,7 @@ m1_software,runtime_run_12_ms,163.8,sw_baseline.md
 m1_software,runtime_run_13_ms,144.6,sw_baseline.md
 m1_software,runtime_run_14_ms,160.9,sw_baseline.md
 m1_software,runtime_run_15_ms,150.6,sw_baseline.md
+m1_software_power,m1_pro_package_power_upper_bound_W,30,AnandTech M1 Pro SoC analysis October 2021; Apple M1 Pro performance-per-watt positioning; sustained multi-core CPU load
+m1_software_power,m1_pro_single_core_attribution_W,10,realistic single-core attribution for NumPy single-threaded at 1.2% peak FLOP/s
+m1_software_energy,upper_bound_energy_per_layer_mJ,4827.0,30 W * 160.9 ms; not measured wall-plug energy
+m1_software_energy,realistic_energy_per_layer_mJ,1609.0,10 W * 160.9 ms; not measured wall-plug energy
